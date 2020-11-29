@@ -9,6 +9,7 @@ keywords = ["chinese", "dictionary", "hanzi", "cc-cedict", "convert"]
 categories = ["internationalization", "localization", "parser-implementations", "text-processing", "value-formatting"]
 license = "MIT"
 edition = "2018"
+exclude = ["CHANGELOG.md", "LICENSE-CC-CEDICT.rtf", "target", "LICENSE"]
 
 [dependencies]
 bincode = "1.3.1"
