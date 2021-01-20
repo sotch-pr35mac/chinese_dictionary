@@ -162,6 +162,16 @@ mod tests {
 		let expected = "dragon (as a decorative design)";
 		assert_eq!(expected, actual);
 	}
+
+	#[test]
+	fn search_sentence() {
+		let dictionary = ChineseDictionary::new();
+		let query = "你好今天的天气还好。";
+		let result = dictionary.query(query);
+		let actual = result.unwrap().first().unwrap().english.first().unwrap();
+		let expected = "hello";
+		assert_eq!(expected, actual);
+	}
 	
 	#[test]
 	fn search_by_pinyin_1() {

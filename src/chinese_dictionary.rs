@@ -174,7 +174,7 @@ impl Dictionary {
 
 		for word in self.segment(raw) {
 			if dictionary.contains_key(&word) {
-				for item in dictionary.get(raw).unwrap() {
+				for item in dictionary.get(&word).unwrap() {
 					entries.push(self.data.get(item).unwrap());
 				}
 			}
