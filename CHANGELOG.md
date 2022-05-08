@@ -1,6 +1,10 @@
 # Change Log
 All notable changes to this project will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org/).
 
+## [1.0.2] - 2022-05-07
+### Changed
+- Updated dependencies
+
 ## [1.0.1] - 2021-01-20
 ### Fixed
 - Fixed an issue with longer chinese character queries
