@@ -1,21 +1,24 @@
-// @author		:: Preston Wang-Stosur-Bassett <p.wanstobas@gmail.com>
-// @date		:: October 17, 2020
-// @description		:: A Chinese / English Dictionary
-
 use bincode::deserialize_from;
-use character_converter::{
+pub use character_converter::{
     is_simplified, is_traditional, simplified_to_traditional, tokenize, traditional_to_simplified,
 };
-use chinese_detection::ChineseDetection;
-pub use chinese_detection::ClassificationResult;
+pub use chinese_detection::{classify, ClassificationResult};
+use once_cell::sync::Lazy;
 use serde_derive::Deserialize;
 use std::collections::HashMap;
 
-static TRADITIONAL: &'static [u8] = include_bytes!("../data/traditional.dictionary");
-static SIMPLIFIED: &'static [u8] = include_bytes!("../data/simplified.dictionary");
-static PINYIN: &'static [u8] = include_bytes!("../data/pinyin.dictionary");
-static ENGLISH: &'static [u8] = include_bytes!("../data/english.dictionary");
-static DATA: &'static [u8] = include_bytes!("../data/data.dictionary");
+type Searchable = HashMap<String, Vec<u32>>;
+
+static TRADITIONAL: Lazy<Searchable> =
+    Lazy::new(|| deserialize_from(&include_bytes!("../data/traditional.dictionary")[..]).unwrap());
+static SIMPLIFIED: Lazy<Searchable> =
+    Lazy::new(|| deserialize_from(&include_bytes!("../data/simplified.dictionary")[..]).unwrap());
+static PINYIN: Lazy<Searchable> =
+    Lazy::new(|| deserialize_from(&include_bytes!("../data/pinyin.dictionary")[..]).unwrap());
+static ENGLISH: Lazy<Searchable> =
+    Lazy::new(|| deserialize_from(&include_bytes!("../data/english.dictionary")[..]).unwrap());
+static DATA: Lazy<HashMap<u32, WordEntry>> =
+    Lazy::new(|| deserialize_from(&include_bytes!("../data/data.dictionary")[..]).unwrap());
 static ENGLISH_MAX_LENGTH: usize = 4;
 
 #[derive(Deserialize, Debug)]
@@ -40,180 +43,110 @@ pub struct WordEntry {
     pub word_id: u32,
 }
 
-pub struct Dictionary {
-    traditional: HashMap<String, Vec<u32>>,
-    simplified: HashMap<String, Vec<u32>>,
-    pinyin: HashMap<String, Vec<u32>>,
-    english: HashMap<String, Vec<u32>>,
-    data: HashMap<u32, WordEntry>,
-    language_util: ChineseDetection,
+pub fn init() {
+    Lazy::force(&TRADITIONAL);
+    Lazy::force(&SIMPLIFIED);
+    Lazy::force(&PINYIN);
+    Lazy::force(&ENGLISH);
+    Lazy::force(&DATA);
+    character_converter::init();
+    chinese_detection::init();
 }
 
-impl Dictionary {
-    pub fn new() -> Dictionary {
-        character_converter::init();
-        Dictionary {
-            traditional: deserialize_from(TRADITIONAL).unwrap(),
-            simplified: deserialize_from(SIMPLIFIED).unwrap(),
-            pinyin: deserialize_from(PINYIN).unwrap(),
-            english: deserialize_from(ENGLISH).unwrap(),
-            data: deserialize_from(DATA).unwrap(),
-            language_util: ChineseDetection::new(), // This operation takes 2 seconds to complete
-        }
-    }
+/// # Query by English
+/// Query the dictionary specifically with English.
+/// Uses a largest first matching approach to look for compound words within the provided string.
+/// Will attempt to take the shortest of four tokens or the total number of tokens in the string to match against.
+pub fn query_by_english(raw: &str) -> Vec<&WordEntry> {
+    let mut entries: Vec<&WordEntry> = Vec::new();
+    let default_take = if raw.split(' ').count() < ENGLISH_MAX_LENGTH {
+        raw.split(' ').count()
+    } else {
+        ENGLISH_MAX_LENGTH
+    };
+    let mut skip = 0;
+    let mut take = default_take;
 
-    /// # Classify
-    /// Classify a string of text as either Pinyin, English, or Chinese characters.
-    /// For more information on the possible `ClassificationResult` enum values refer to the README.
-    pub fn classify(&self, raw: &str) -> ClassificationResult {
-        self.language_util.classify(raw)
-    }
-
-    /// # Convert to Simplified
-    /// Convert a string of Traditional Chinese characters to their Simplified form.
-    pub fn convert_to_simplified(&self, raw: &str) -> String {
-        return traditional_to_simplified(raw).to_string();
-    }
-
-    /// # Convert to Traditional
-    /// Convert a string of Simplified Chinese characters to their Traditional form.
-    pub fn convert_to_traditional(&self, raw: &str) -> String {
-        return simplified_to_traditional(raw).to_string();
-    }
-
-    /// # Is Traditional
-    /// Checks if a string of Chinese characters is Traditional
-    pub fn is_traditional(&self, raw: &str) -> bool {
-        is_traditional(raw)
-    }
-
-    /// # Is Simplified
-    /// Checks if a string of Chinese characters is Simplified
-    pub fn is_simplified(&self, raw: &str) -> bool {
-        is_simplified(raw)
-    }
-
-    /// # Segment
-    /// Segment a string of either Traditional or Simplified Chinese characters into constituent words.
-    /// Uses a largest first matching dictionary driven approach.
-    pub fn segment(&self, raw: &str) -> Vec<String> {
-        let tokens = tokenize(raw);
-        let mut segments: Vec<String> = Vec::with_capacity(tokens.len());
-
-        for token in tokens {
-            segments.push(token.to_owned());
-        }
-
-        return segments;
-    }
-
-    /// # Query by English
-    /// Query the dictionary specifically with English.
-    /// Uses a largest first matching approach to look for compound words within the provided string.
-    /// Will attempt to take the shortest of four tokens or the total number of tokens in the string to match against.
-    pub fn query_by_english(&self, raw: &str) -> Vec<&WordEntry> {
-        let mut entries: Vec<&WordEntry> = Vec::new();
-        let default_take = if raw.split(" ").count() < ENGLISH_MAX_LENGTH {
-            raw.split(" ").count()
-        } else {
-            ENGLISH_MAX_LENGTH
-        };
-        let mut skip = 0;
-        let mut take = default_take;
-
-        while skip < raw.split(" ").count() {
-            let substring: String = raw
-                .split(" ")
-                .skip(skip)
-                .take(take)
-                .collect::<Vec<&str>>()
-                .join("%20");
-            if !self.english.contains_key(&substring) {
-                if take > 1 {
-                    take -= 1;
-                } else {
-                    skip += 1;
-                    take = default_take;
-                }
+    while skip < raw.split(' ').count() {
+        let substring: String = raw
+            .split(' ')
+            .skip(skip)
+            .take(take)
+            .collect::<Vec<&str>>()
+            .join("%20");
+        if !ENGLISH.contains_key(&substring) {
+            if take > 1 {
+                take -= 1;
             } else {
-                for item in self.english.get(&substring).unwrap() {
-                    entries.push(self.data.get(item).unwrap());
-                }
-                skip += take;
+                skip += 1;
                 take = default_take;
             }
+        } else {
+            for item in ENGLISH.get(&substring).unwrap() {
+                entries.push(DATA.get(item).unwrap());
+            }
+            skip += take;
+            take = default_take;
         }
-
-        return entries;
     }
 
-    /// # Query by Pinyin
-    /// Query the dictionary specifically with Pinyin.
-    /// Uses space as a token delineator. Supports pinyin with no tones, tone marks, and tone numbers.
-    pub fn query_by_pinyin(&self, raw: &str) -> Vec<&WordEntry> {
-        let mut entries: Vec<&WordEntry> = Vec::new();
+    entries
+}
 
-        for word in raw.split(" ") {
-            if self.pinyin.contains_key(word) {
-                for item in self.pinyin.get(word).unwrap() {
-                    entries.push(self.data.get(item).unwrap());
-                }
+/// # Query by Pinyin
+/// Query the dictionary specifically with Pinyin.
+/// Uses space as a token delineator. Supports pinyin with no tones, tone marks, and tone numbers.
+pub fn query_by_pinyin(raw: &str) -> Vec<&WordEntry> {
+    let mut entries: Vec<&WordEntry> = Vec::new();
+
+    for word in raw.split(' ') {
+        if PINYIN.contains_key(word) {
+            for item in PINYIN.get(word).unwrap() {
+                entries.push(DATA.get(item).unwrap());
             }
         }
-
-        return entries;
     }
 
-    fn query_by_characters(
-        &self,
-        dictionary: &HashMap<String, Vec<u32>>,
-        raw: &str,
-    ) -> Vec<&WordEntry> {
-        let mut entries: Vec<&WordEntry> = Vec::new();
+    entries
+}
 
-        for word in self.segment(raw) {
-            if dictionary.contains_key(&word) {
-                for item in dictionary.get(&word).unwrap() {
-                    entries.push(self.data.get(item).unwrap());
-                }
+fn query_by_characters<'a>(dictionary: &'a Searchable, raw: &'a str) -> Vec<&'a WordEntry> {
+    let mut entries: Vec<&WordEntry> = Vec::new();
+
+    for word in tokenize(raw) {
+        if dictionary.contains_key(word) {
+            for item in dictionary.get(word).unwrap() {
+                entries.push(DATA.get(item).unwrap());
             }
         }
-
-        return entries;
     }
 
-    fn query_by_traditional(&self, raw: &str) -> Vec<&WordEntry> {
-        self.query_by_characters(&self.traditional, raw)
-    }
+    entries
+}
 
-    fn query_by_simplified(&self, raw: &str) -> Vec<&WordEntry> {
-        self.query_by_characters(&self.simplified, raw)
+/// # Query by Chinese
+/// Query the dictionary specifically with Chinese characters.
+/// Supports both Traditional and Simplified Chinese characters.
+pub fn query_by_chinese(raw: &str) -> Vec<&WordEntry> {
+    match is_traditional(raw) {
+        true => query_by_characters(&TRADITIONAL, raw),
+        false => query_by_characters(&SIMPLIFIED, raw),
     }
+}
 
-    /// # Query by Chinese
-    /// Query the dictionary specifically with Chinese characters.
-    /// Supports both Traditional and Simplified Chinese characters.
-    pub fn query_by_chinese(&self, raw: &str) -> Vec<&WordEntry> {
-        match is_traditional(raw) {
-            true => self.query_by_traditional(raw),
-            false => self.query_by_simplified(raw),
-        }
-    }
-
-    /// # Query
-    /// Query the dictionary using Traditional Chinese characters, Simplified Chinese characters, English,
-    /// pinyin with no tone marks, pinyin with tone numbers, and pinyin with tone marks.
-    ///
-    /// When querying using any of the supported pinyin options, space is used as a token delineator.
-    ///
-    /// When querying using English, a largest first matching approached is used to look for compound words.
-    /// Will attempt to take the shortest of four tokens or the total number of tokens in the string to match against.
-    pub fn query(&self, raw: &str) -> Option<Vec<&WordEntry>> {
-        match self.language_util.classify(raw) {
-            ClassificationResult::EN => Some(self.query_by_english(raw)),
-            ClassificationResult::PY => Some(self.query_by_pinyin(raw)),
-            ClassificationResult::ZH => Some(self.query_by_chinese(raw)),
-            _ => None,
-        }
+/// # Query
+/// Query the dictionary using Traditional Chinese characters, Simplified Chinese characters, English,
+/// pinyin with no tone marks, pinyin with tone numbers, and pinyin with tone marks.
+///
+/// When querying using any of the supported pinyin options, space is used as a token delineator.
+///
+/// When querying using English, a largest first matching approached is used to look for compound words.
+/// Will attempt to take the shortest of four tokens or the total number of tokens in the string to match against.
+pub fn query(raw: &str) -> Option<Vec<&WordEntry>> {
+    match chinese_detection::classify(raw) {
+        ClassificationResult::EN => Some(query_by_english(raw)),
+        ClassificationResult::PY => Some(query_by_pinyin(raw)),
+        ClassificationResult::ZH => Some(query_by_chinese(raw)),
+        _ => None,
     }
 }

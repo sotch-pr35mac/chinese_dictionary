@@ -5,69 +5,58 @@ A searchable Chinese / English dictionary with helpful utilities.
 
 ### Features
 - Search with Traditional Chinese characters, Simplified Chinese characters, pinyin with tone marks, pinyin with tone numbers, pinyin with no tones, and English. 
-- Classify a string of text as either English, Pinyin, or Chinese characters. 
+- Classify text as either English, Pinyin, or Chinese characters. 
 - Convert between Traditional and Simplified Chinese characters.
-- Segment strings of Chinese characters into tokens using a dictionary-driven segmentation approach.
+- Tokenize Chinese characters using a dictionary-driven segmentation approach.
 
 ### Usage
 Querying the dictionary
 ```rust
 extern crate chinese_dictionary;
 
-use chinese_dictionary::ChineseDictionary;
-
-let dictionary = ChineseDictionary::new(); // Instantiation may take a while
+use chinese_dictionary::query;
 
 // Querying the dictionary returns an `Option<Vec<&WordEntry>>`
 // Read more about the WordEntry struct below
-let query = "to run";
-let results = dictionary.query(query).unwrap();
-let first_result = results.first().unwrap();
-println!("{}", first_result.simplified) // --> "执行"
+let text = "to run";
+let results = query(text).unwrap();
+assert_eq!("执行", results[0].simplified);
 ```
 
 Classifying a string of text
 ```rust
 extern crate chinese_dictionary;
 
-use chinese_dictionary::ChineseDictionary;
-use chinese_dictionary::ClassificationResult;
-
-let dictionary = ChineseDictionary::new(); // Instantiation may take a while
+use chinese_dictionary::{ClassificationResult, classify};
 
 // Read more about the ClassificationResult enum below 
-println!("{:?}", dictionary.classify("nihao")); // --> ClassificationResult::PY
+assert_eq!(ClassificationResult::PY, classify("nihao"));
 ```
 
 Convert between Traditional and Simplified Chinese characters
 ```rust
 extern crate chinese_dictionary;
 
-use chinese_dictionary::ChineseDictionary;
+use chinese_dictionary::{simplified_to_traditional, traditional_to_simplified};
 
-let dictionary = ChineseDictionary::new(); // Instantiation may take a while
-
-println!("{}", dictionary.convert_to_simplified("簡體字")); // --> "简体字"
-println!("{}", dictionary.convert_to_traditional("繁体字")); // --> "繁體字"
+assert_eq!("简体字", traditional_to_simplified("簡體字"));
+assert_eq!("繁體字", simplified_to_traditional("繁体字"));
 ```
 
 Segment a string of characters
 ```rust
 extern crate chinese_dictionary;
 
-use chinese_dictionary::ChineseDictionary;
+use chinese_dictionary::{tokenize};
 
-let dictionary = ChineseDictionary::new(); // Instantiation may take a while
-
-println!("{:?}", dictionary.segment("今天天气不错")); // --> ["今天", "天气", "不错"]
+assert_eq!(vec!["今天", "天气", "不错"], tokenize("今天天气不错"));
 ```
 
 #### `WordEntry` struct
 ```rust
 extern crate chinese_dictionary;
 
-use chinese_dictionary::WordEntry;
-use chinese_dictionary::MeasureWord;
+use chinese_dictionary::{MeasureWord, WordEntry};
 
 let example_measure_word = MeasureWord {
 	traditional: "example_traditional".to_string(),
