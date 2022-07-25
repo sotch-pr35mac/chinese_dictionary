@@ -21,7 +21,7 @@ static DATA: Lazy<HashMap<u32, WordEntry>> =
     Lazy::new(|| deserialize_from(&include_bytes!("../data/data.dictionary")[..]).unwrap());
 static ENGLISH_MAX_LENGTH: usize = 4;
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct MeasureWord {
     pub traditional: String,
     pub simplified: String,
@@ -29,7 +29,7 @@ pub struct MeasureWord {
     pub pinyin_numbers: String,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct WordEntry {
     pub traditional: String,
     pub simplified: String,
