@@ -21,7 +21,7 @@ static DATA: Lazy<HashMap<u32, WordEntry>> =
     Lazy::new(|| deserialize_from(&include_bytes!("../data/data.dictionary")[..]).unwrap());
 static ENGLISH_MAX_LENGTH: usize = 4;
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct MeasureWord {
     pub traditional: String,
     pub simplified: String,
@@ -29,7 +29,7 @@ pub struct MeasureWord {
     pub pinyin_numbers: String,
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct WordEntry {
     pub traditional: String,
     pub simplified: String,
@@ -57,7 +57,7 @@ pub fn init() {
 /// Query the dictionary specifically with English.
 /// Uses a largest first matching approach to look for compound words within the provided string.
 /// Will attempt to take the shortest of four tokens or the total number of tokens in the string to match against.
-pub fn query_by_english(raw: &str) -> Vec<&WordEntry> {
+pub fn query_by_english(raw: &str) -> Vec<&'static WordEntry> {
     let mut entries: Vec<&WordEntry> = Vec::new();
     let default_take = if raw.split(' ').count() < ENGLISH_MAX_LENGTH {
         raw.split(' ').count()
@@ -93,45 +93,55 @@ pub fn query_by_english(raw: &str) -> Vec<&WordEntry> {
     entries
 }
 
+#[inline]
+fn get_entries<'a>(dict: &'a Searchable, word: &str) -> impl Iterator<Item = &'a WordEntry> {
+    static EMPTY: Vec<u32> = Vec::new();
+    dict.get(word)
+        .unwrap_or(&EMPTY)
+        .iter()
+        .map(|k| DATA.get(k).expect("Internal error: Missing definition"))
+}
+
 /// # Query by Pinyin
 /// Query the dictionary specifically with Pinyin.
 /// Uses space as a token delineator. Supports pinyin with no tones, tone marks, and tone numbers.
-pub fn query_by_pinyin(raw: &str) -> Vec<&WordEntry> {
-    let mut entries: Vec<&WordEntry> = Vec::new();
-
-    for word in raw.split(' ') {
-        if PINYIN.contains_key(word) {
-            for item in PINYIN.get(word).unwrap() {
-                entries.push(DATA.get(item).unwrap());
-            }
-        }
-    }
-
-    entries
+pub fn query_by_pinyin(raw: &str) -> Vec<&'static WordEntry> {
+    raw.split(' ')
+        .flat_map(|word| get_entries(&PINYIN, word))
+        .collect::<Vec<_>>()
 }
 
-fn query_by_characters<'a>(dictionary: &'a Searchable, raw: &'a str) -> Vec<&'a WordEntry> {
-    let mut entries: Vec<&WordEntry> = Vec::new();
-
-    for word in tokenize(raw) {
-        if dictionary.contains_key(word) {
-            for item in dictionary.get(word).unwrap() {
-                entries.push(DATA.get(item).unwrap());
-            }
-        }
-    }
-
-    entries
+fn query_by_characters(dictionary: &'static Searchable, raw: &str) -> Vec<&'static WordEntry> {
+    tokenize(raw)
+        .into_iter()
+        .flat_map(|word| get_entries(dictionary, word))
+        .collect::<Vec<_>>()
 }
 
 /// # Query by Chinese
 /// Query the dictionary specifically with Chinese characters.
 /// Supports both Traditional and Simplified Chinese characters.
-pub fn query_by_chinese(raw: &str) -> Vec<&WordEntry> {
-    match is_traditional(raw) {
-        true => query_by_characters(&TRADITIONAL, raw),
-        false => query_by_characters(&SIMPLIFIED, raw),
-    }
+pub fn query_by_chinese(raw: &str) -> Vec<&'static WordEntry> {
+    query_by_characters(
+        if is_traditional(raw) {
+            &TRADITIONAL
+        } else {
+            &SIMPLIFIED
+        },
+        raw,
+    )
+}
+
+/// # Query by exact Simplified Chinese word
+/// Query the Simplified dictionary for a specific word. Does not perform segmentation of input.
+pub fn query_by_simplified(raw: &str) -> Vec<&'static WordEntry> {
+    get_entries(&SIMPLIFIED, raw).collect::<Vec<_>>()
+}
+
+/// # Query by exact Traditional Chinese word
+/// Query the Traditional dictionary for a specific word. Does not perform segmentation of input.
+pub fn query_by_traditional(raw: &str) -> Vec<&'static WordEntry> {
+    get_entries(&TRADITIONAL, raw).collect::<Vec<_>>()
 }
 
 /// # Query
@@ -142,7 +152,7 @@ pub fn query_by_chinese(raw: &str) -> Vec<&WordEntry> {
 ///
 /// When querying using English, a largest first matching approached is used to look for compound words.
 /// Will attempt to take the shortest of four tokens or the total number of tokens in the string to match against.
-pub fn query(raw: &str) -> Option<Vec<&WordEntry>> {
+pub fn query(raw: &str) -> Option<Vec<&'static WordEntry>> {
     match chinese_detection::classify(raw) {
         ClassificationResult::EN => Some(query_by_english(raw)),
         ClassificationResult::PY => Some(query_by_pinyin(raw)),
