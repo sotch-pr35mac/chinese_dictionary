@@ -57,7 +57,7 @@ pub fn init() {
 /// Query the dictionary specifically with English.
 /// Uses a largest first matching approach to look for compound words within the provided string.
 /// Will attempt to take the shortest of four tokens or the total number of tokens in the string to match against.
-pub fn query_by_english(raw: &str) -> Vec<&WordEntry> {
+pub fn query_by_english(raw: &str) -> Vec<&'static WordEntry> {
     let mut entries: Vec<&WordEntry> = Vec::new();
     let default_take = if raw.split(' ').count() < ENGLISH_MAX_LENGTH {
         raw.split(' ').count()
@@ -96,7 +96,7 @@ pub fn query_by_english(raw: &str) -> Vec<&WordEntry> {
 /// # Query by Pinyin
 /// Query the dictionary specifically with Pinyin.
 /// Uses space as a token delineator. Supports pinyin with no tones, tone marks, and tone numbers.
-pub fn query_by_pinyin(raw: &str) -> Vec<&WordEntry> {
+pub fn query_by_pinyin(raw: &str) -> Vec<&'static WordEntry> {
     let mut entries: Vec<&WordEntry> = Vec::new();
 
     for word in raw.split(' ') {
@@ -110,7 +110,7 @@ pub fn query_by_pinyin(raw: &str) -> Vec<&WordEntry> {
     entries
 }
 
-fn query_by_characters<'a>(dictionary: &'a Searchable, raw: &'a str) -> Vec<&'a WordEntry> {
+fn query_by_characters<'a>(dictionary: &'a Searchable, raw: &'a str) -> Vec<&'static WordEntry> {
     let mut entries: Vec<&WordEntry> = Vec::new();
 
     for word in tokenize(raw) {
@@ -127,7 +127,7 @@ fn query_by_characters<'a>(dictionary: &'a Searchable, raw: &'a str) -> Vec<&'a 
 /// # Query by Chinese
 /// Query the dictionary specifically with Chinese characters.
 /// Supports both Traditional and Simplified Chinese characters.
-pub fn query_by_chinese(raw: &str) -> Vec<&WordEntry> {
+pub fn query_by_chinese(raw: &str) -> Vec<&'static WordEntry> {
     match is_traditional(raw) {
         true => query_by_characters(&TRADITIONAL, raw),
         false => query_by_characters(&SIMPLIFIED, raw),
@@ -142,7 +142,7 @@ pub fn query_by_chinese(raw: &str) -> Vec<&WordEntry> {
 ///
 /// When querying using English, a largest first matching approached is used to look for compound words.
 /// Will attempt to take the shortest of four tokens or the total number of tokens in the string to match against.
-pub fn query(raw: &str) -> Option<Vec<&WordEntry>> {
+pub fn query(raw: &str) -> Option<Vec<&'static WordEntry>> {
     match chinese_detection::classify(raw) {
         ClassificationResult::EN => Some(query_by_english(raw)),
         ClassificationResult::PY => Some(query_by_pinyin(raw)),
