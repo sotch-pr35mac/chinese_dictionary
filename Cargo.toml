@@ -1,6 +1,6 @@
 [package]
 name = "chinese_dictionary"
-version = "2.0.0"
+version = "2.1.0"
 authors = ["Preston Wang-Stosur-Bassett <p.wanstobas@gmail.com>"]
 description = "A searchable Chinese / English dictionary with helpful utilities."
 repository = "https://github.com/sotch-pr35mac/chinese_dictionary"
