@@ -92,8 +92,8 @@ extern crate once_cell;
 mod chinese_dictionary;
 pub use self::chinese_dictionary::{
     classify, init, is_simplified, is_traditional, query, query_by_chinese, query_by_english,
-    query_by_pinyin, simplified_to_traditional, tokenize, traditional_to_simplified,
-    ClassificationResult, MeasureWord, WordEntry,
+    query_by_pinyin, query_by_simplified, query_by_traditional, simplified_to_traditional,
+    tokenize, traditional_to_simplified, ClassificationResult, MeasureWord, WordEntry,
 };
 
 #[cfg(test)]
@@ -142,6 +142,24 @@ mod tests {
         let result = query(text);
         let actual = result.unwrap().first().unwrap().english.first().unwrap();
         let expected = "dragon (as a decorative design)";
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn test_search_by_simplified_exact() {
+        let text = "龙纹";
+        let result = query_by_simplified(text);
+        let actual = result.first().unwrap().english.first().unwrap();
+        let expected = "dragon (as a decorative design)";
+        assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn test_search_by_traditional_exact() {
+        let text = "繁體字";
+        let result = query_by_traditional(text);
+        let actual = result.first().unwrap().english.first().unwrap();
+        let expected = "traditional Chinese character";
         assert_eq!(expected, actual);
     }
 
