@@ -1,6 +1,10 @@
 # Change Log
 All notable changes to this project will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org/).
 
+## [2.1.1] - 2022-09-10
+### Fixed
+- Fixed various bugs in search when querying with capitalization, empty string, and space
+
 ## [2.1.0] - 2022-07-26
 ### Added
 - Added ability to make an exact query by traditional or simplified as described in #8

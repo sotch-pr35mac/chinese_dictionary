@@ -58,39 +58,45 @@ pub fn init() {
 /// Uses a largest first matching approach to look for compound words within the provided string.
 /// Will attempt to take the shortest of four tokens or the total number of tokens in the string to match against.
 pub fn query_by_english(raw: &str) -> Vec<&'static WordEntry> {
-    let mut entries: Vec<&WordEntry> = Vec::new();
-    let default_take = if raw.split(' ').count() < ENGLISH_MAX_LENGTH {
-        raw.split(' ').count()
+    if raw.is_empty() || raw == " " {
+        vec![]
     } else {
-        ENGLISH_MAX_LENGTH
-    };
-    let mut skip = 0;
-    let mut take = default_take;
+        let raw = raw.to_lowercase();
+        let mut entries: Vec<&WordEntry> = Vec::new();
+        let default_take = if raw.split(' ').count() < ENGLISH_MAX_LENGTH {
+            raw.split(' ').count()
+        } else {
+            ENGLISH_MAX_LENGTH
+        };
+        let mut skip = 0;
+        let mut take = default_take;
 
-    while skip < raw.split(' ').count() {
-        let substring: String = raw
-            .split(' ')
-            .skip(skip)
-            .take(take)
-            .collect::<Vec<&str>>()
-            .join("%20");
-        if !ENGLISH.contains_key(&substring) {
-            if take > 1 {
-                take -= 1;
+        while skip < raw.split(' ').count() {
+            let substring: String = raw
+                .split(' ')
+                .skip(skip)
+                .take(take)
+                .collect::<Vec<&str>>()
+                .join("%20");
+            if !ENGLISH.contains_key(&substring) {
+                if take > 1 {
+                    take -= 1;
+                } else {
+                    skip += 1;
+                    take = default_take;
+                }
             } else {
-                skip += 1;
+                for item in ENGLISH.get(&substring).unwrap() {
+                    entries.push(DATA.get(item).unwrap());
+                }
+                skip += take;
                 take = default_take;
             }
-        } else {
-            for item in ENGLISH.get(&substring).unwrap() {
-                entries.push(DATA.get(item).unwrap());
-            }
-            skip += take;
-            take = default_take;
         }
-    }
 
-    entries
+        entries.dedup();
+        entries
+    }
 }
 
 #[inline]
@@ -106,9 +112,14 @@ fn get_entries<'a>(dict: &'a Searchable, word: &str) -> impl Iterator<Item = &'a
 /// Query the dictionary specifically with Pinyin.
 /// Uses space as a token delineator. Supports pinyin with no tones, tone marks, and tone numbers.
 pub fn query_by_pinyin(raw: &str) -> Vec<&'static WordEntry> {
-    raw.split(' ')
-        .flat_map(|word| get_entries(&PINYIN, word))
-        .collect::<Vec<_>>()
+    if raw.is_empty() || raw == " " {
+        vec![]
+    } else {
+        let raw = raw.to_lowercase();
+        raw.split(' ')
+            .flat_map(|word| get_entries(&PINYIN, word))
+            .collect::<Vec<_>>()
+    }
 }
 
 fn query_by_characters(dictionary: &'static Searchable, raw: &str) -> Vec<&'static WordEntry> {
