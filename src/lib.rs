@@ -335,4 +335,78 @@ mod tests {
         let expected = false;
         assert_eq!(expected, actual);
     }
+
+    #[test]
+    fn test_capitalization() {
+        let english_text = "Watermelon";
+        let english_result = query(english_text);
+        let english_actual = &english_result.unwrap().first().unwrap().traditional;
+        let english_expected = "西瓜";
+        assert_eq!(english_expected, english_actual);
+
+        let pinyin_text = "Beijing";
+        let pinyin_result = query(pinyin_text);
+        let pinyin_actual = &pinyin_result.unwrap().first().unwrap().traditional;
+        let pinyin_expected = "北京";
+        assert_eq!(pinyin_expected, pinyin_actual);
+    }
+
+    #[test]
+    fn test_empty_search_chinese() {
+        let text = "";
+        let result = query_by_chinese(text);
+        let length = result.len();
+        assert_eq!(length, 0 as usize);
+    }
+
+    #[test]
+    fn test_space_search_chinese() {
+        let text = " ";
+        let result = query_by_chinese(text);
+        let length = result.len();
+        assert_eq!(length, 0 as usize);
+    }
+
+    #[test]
+    fn test_empty_search_pinyin() {
+        let text = "";
+        let result = query_by_pinyin(text);
+        let length = result.len();
+        assert_eq!(length, 0 as usize);
+    }
+
+    #[test]
+    fn test_space_search_pinyin() {
+        let text = " ";
+        let result = query_by_pinyin(text);
+        let length = result.len();
+        assert_eq!(length, 0 as usize);
+    }
+
+    #[test]
+    fn test_empty_search_english() {
+        let text = "";
+        let result = query_by_english(text);
+        let length = result.len();
+        assert_eq!(length, 0 as usize);
+    }
+
+    #[test]
+    fn test_space_search_english() {
+        let text = " ";
+        let result = query_by_english(text);
+        let length = result.len();
+        assert_eq!(length, 0 as usize);
+    }
+
+    #[test]
+    fn test_no_duplicates() {
+        let text = "test";
+        let results = query(text).unwrap();
+        let mut seen = Vec::new();
+        for entry in results {
+            assert!(!seen.contains(&entry.word_id));
+            seen.push(entry.word_id);
+        }
+    }
 }
