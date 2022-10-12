@@ -1,6 +1,11 @@
 # Change Log
 All notable changes to this project will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org/).
 
+## [2.1.2] - 2022-10-12
+### Changed
+- Updated dependencies
+- Derived `Serialize` trait on structs
+
 ## [2.1.1] - 2022-09-10
 ### Fixed
 - Fixed various bugs in search when querying with capitalization, empty string, and space
