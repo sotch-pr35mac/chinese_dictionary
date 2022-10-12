@@ -4,7 +4,7 @@ pub use character_converter::{
 };
 pub use chinese_detection::{classify, ClassificationResult};
 use once_cell::sync::Lazy;
-use serde_derive::Deserialize;
+use serde_derive::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 type Searchable = HashMap<String, Vec<u32>>;
@@ -21,7 +21,7 @@ static DATA: Lazy<HashMap<u32, WordEntry>> =
     Lazy::new(|| deserialize_from(&include_bytes!("../data/data.dictionary")[..]).unwrap());
 static ENGLISH_MAX_LENGTH: usize = 4;
 
-#[derive(Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct MeasureWord {
     pub traditional: String,
     pub simplified: String,
@@ -29,7 +29,7 @@ pub struct MeasureWord {
     pub pinyin_numbers: String,
 }
 
-#[derive(Deserialize, Debug, Clone, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct WordEntry {
     pub traditional: String,
     pub simplified: String,
