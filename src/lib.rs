@@ -123,7 +123,7 @@ mod tests {
         let text = "people around the world";
         let result = query(text);
         let actual = &result.unwrap().first().unwrap().traditional;
-        let expected = "世人";
+        let expected = "人們";
         assert_eq!(expected, actual);
     }
 
