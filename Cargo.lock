@@ -34,7 +34,7 @@ dependencies = [
 
 [[package]]
 name = "chinese_dictionary"
-version = "2.1.6"
+version = "2.1.7"
 dependencies = [
  "bincode",
  "character_converter",
