@@ -1,6 +1,11 @@
 # Change Log
 All notable changes to this project will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org/).
 
+## [2.1.8] - 2026-08-16
+### Fixed
+- Normalized whitespace and sentence punctuation before classifying and searching English and Pinyin queries
+- Supported straight and curly apostrophes in Pinyin queries by using the existing joined index keys
+
 ## [2.1.7] - 2026-08-16
 ### Fixed
 - Built Chinese tokenization from the dictionary headwords and searched both script indexes to prevent incomplete lookup results
