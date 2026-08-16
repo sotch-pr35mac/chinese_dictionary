@@ -39,6 +39,7 @@ dependencies = [
  "bincode",
  "character_converter",
  "chinese_detection",
+ "fst",
  "once_cell",
  "serde",
  "serde_derive",

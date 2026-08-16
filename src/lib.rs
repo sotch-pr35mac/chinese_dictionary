@@ -99,6 +99,30 @@ pub use self::chinese_dictionary::{
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashSet;
+
+    fn word_ids(entries: Vec<&WordEntry>) -> Vec<u32> {
+        entries.into_iter().map(|entry| entry.word_id).collect()
+    }
+
+    fn expected_chinese_ids(headword: &str) -> Vec<u32> {
+        let mut seen = HashSet::new();
+
+        query_by_simplified(headword)
+            .into_iter()
+            .chain(query_by_traditional(headword))
+            .filter(|entry| seen.insert(entry.word_id))
+            .map(|entry| entry.word_id)
+            .collect()
+    }
+
+    fn assert_contains_all(actual: Vec<&WordEntry>, expected: Vec<&WordEntry>) {
+        let actual_ids: HashSet<u32> = actual.into_iter().map(|entry| entry.word_id).collect();
+
+        for entry in expected {
+            assert!(actual_ids.contains(&entry.word_id));
+        }
+    }
 
     #[test]
     fn test_search_by_english_1() {
@@ -167,8 +191,8 @@ mod tests {
     fn test_search_sentence() {
         let text = "你好今天的天气还好。";
         let result = query(text);
-        let actual = result.unwrap().first().unwrap().english.first().unwrap();
-        let expected = "hello";
+        let actual = &result.unwrap().first().unwrap().simplified;
+        let expected = "你好";
         assert_eq!(expected, actual);
     }
 
@@ -238,6 +262,49 @@ mod tests {
             "颜色".to_string(),
         ];
         assert_eq!(expected, actual);
+    }
+
+    #[test]
+    fn test_dictionary_headword_tokenization_and_lookup() {
+        for headword in [
+            "以后",
+            "以後",
+            "用于",
+            "用於",
+            "万",
+            "萬",
+            "舍不得",
+            "捨不得",
+        ] {
+            assert_eq!(vec![headword], tokenize(headword));
+
+            let expected = expected_chinese_ids(headword);
+            assert!(
+                !expected.is_empty(),
+                "Missing exact index fixture: {headword}"
+            );
+            assert_eq!(expected, word_ids(query_by_chinese(headword)));
+        }
+    }
+
+    #[test]
+    fn test_ambiguous_headword_returns_all_unique_entries() {
+        let results = query_by_chinese("万");
+        let ids = word_ids(results);
+        let unique_ids: HashSet<u32> = ids.iter().copied().collect();
+
+        assert_eq!(expected_chinese_ids("万"), ids);
+        assert_eq!(3, ids.len());
+        assert_eq!(ids.len(), unique_ids.len());
+        assert_contains_all(query_by_pinyin("wan4"), query_by_traditional("萬"));
+        assert_contains_all(query_by_pinyin("mo4"), query_by_traditional("万"));
+    }
+
+    #[test]
+    fn test_affected_pinyin_queries_are_unchanged() {
+        assert_contains_all(query_by_pinyin("yi3hou4"), query_by_simplified("以后"));
+        assert_contains_all(query_by_pinyin("yong4yu2"), query_by_simplified("用于"));
+        assert_contains_all(query_by_pinyin("she3bu5de5"), query_by_simplified("舍不得"));
     }
 
     #[test]
