@@ -3,11 +3,11 @@ pub use character_converter::{
     is_simplified, is_traditional, simplified_to_traditional, traditional_to_simplified,
 };
 pub use chinese_detection::{classify, ClassificationResult};
-use fst::raw::{Fst, Output};
+use fst::raw::Fst;
 use fst::Set;
 use once_cell::sync::Lazy;
 use serde_derive::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 type Searchable = HashMap<String, Vec<u32>>;
 
@@ -128,18 +128,16 @@ pub fn query_by_pinyin(raw: &str) -> Vec<&'static WordEntry> {
 }
 
 #[inline]
-fn find_longest_prefix<D: AsRef<[u8]>>(fst: &Fst<D>, value: &[u8]) -> Option<(u64, usize)> {
+/// Returns the UTF-8 byte length of the longest prefix present in the FST.
+fn find_longest_prefix<D: AsRef<[u8]>>(fst: &Fst<D>, value: &[u8]) -> Option<usize> {
     let mut node = fst.root();
-    let mut out = Output::zero();
     let mut last_match = None;
 
     for (index, &byte) in value.iter().enumerate() {
         if let Some(transition_index) = node.find_input(byte) {
-            let transition = node.transition(transition_index);
-            node = fst.node(transition.addr);
-            out = out.cat(transition.out);
+            node = fst.node(node.transition_addr(transition_index));
             if node.is_final() {
-                last_match = Some((out.cat(node.final_output()).value(), index + 1));
+                last_match = Some(index + 1);
             }
         } else {
             return last_match;
@@ -160,7 +158,7 @@ pub fn tokenize(raw: &str) -> Vec<&str> {
         let tail = &raw[skip_bytes..];
 
         match find_longest_prefix(CHINESE_FST.as_fst(), tail.as_bytes()) {
-            Some((_, length)) => {
+            Some(length) => {
                 let token = &tail[..length];
                 tokens.push(token);
                 skip_bytes += length;
@@ -175,12 +173,20 @@ pub fn tokenize(raw: &str) -> Vec<&str> {
     tokens
 }
 
+/// Queries the exact simplified index first, then appends traditional-only references.
+/// References shared by both indexes are deduplicated by their common index ID.
 fn get_chinese_entries(word: &str) -> Vec<&'static WordEntry> {
-    let mut seen = HashSet::new();
+    let simplified_ids = SIMPLIFIED.get(word).map(Vec::as_slice).unwrap_or_default();
+    let traditional_ids = TRADITIONAL.get(word).map(Vec::as_slice).unwrap_or_default();
 
-    get_entries(&SIMPLIFIED, word)
-        .chain(get_entries(&TRADITIONAL, word))
-        .filter(|entry| seen.insert(entry.word_id))
+    simplified_ids
+        .iter()
+        .chain(
+            traditional_ids
+                .iter()
+                .filter(|id| !simplified_ids.contains(id)),
+        )
+        .map(|id| DATA.get(id).expect("Internal error: Missing definition"))
         .collect()
 }
 
@@ -226,6 +232,7 @@ pub fn query(raw: &str) -> Option<Vec<&'static WordEntry>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashSet;
 
     #[test]
     fn chinese_fst_matches_the_union_of_both_indexes() {
@@ -245,21 +252,49 @@ mod tests {
     }
 
     #[test]
-    fn every_chinese_index_reference_is_returned_by_chinese_query() {
-        for dictionary in [&*SIMPLIFIED, &*TRADITIONAL] {
-            for (headword, expected_ids) in dictionary {
-                let actual_ids: HashSet<u32> = query_by_chinese(headword)
-                    .into_iter()
-                    .map(|entry| entry.word_id)
-                    .collect();
-
-                for expected_id in expected_ids {
-                    assert!(
-                        actual_ids.contains(expected_id),
-                        "Chinese query for {headword:?} omitted word_id {expected_id}"
+    fn every_index_reference_matches_an_embedded_data_entry() {
+        for (index_name, dictionary) in [
+            ("traditional", &*TRADITIONAL),
+            ("simplified", &*SIMPLIFIED),
+            ("pinyin", &*PINYIN),
+            ("english", &*ENGLISH),
+        ] {
+            for (key, ids) in dictionary {
+                for id in ids {
+                    let entry = DATA.get(id).unwrap_or_else(|| {
+                        panic!("{index_name} index key {key:?} references missing ID {id}")
+                    });
+                    assert_eq!(
+                        entry.word_id, *id,
+                        "{index_name} index key {key:?} references ID {id}, but its entry has word_id {}",
+                        entry.word_id
                     );
                 }
             }
+        }
+    }
+
+    #[test]
+    fn every_chinese_query_equals_the_deduplicated_union_of_exact_indexes() {
+        for headword in SIMPLIFIED.keys().chain(TRADITIONAL.keys()) {
+            let mut seen = HashSet::new();
+            let expected_ids: Vec<u32> = SIMPLIFIED
+                .get(headword)
+                .into_iter()
+                .flatten()
+                .chain(TRADITIONAL.get(headword).into_iter().flatten())
+                .copied()
+                .filter(|id| seen.insert(*id))
+                .collect();
+            let actual_ids: Vec<u32> = query_by_chinese(headword)
+                .into_iter()
+                .map(|entry| entry.word_id)
+                .collect();
+
+            assert_eq!(
+                expected_ids, actual_ids,
+                "Chinese query for {headword:?} did not equal the deduplicated exact-index union"
+            );
         }
     }
 }
