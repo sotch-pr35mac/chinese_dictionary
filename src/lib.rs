@@ -105,6 +105,10 @@ mod tests {
         entries.into_iter().map(|entry| entry.word_id).collect()
     }
 
+    fn query_word_ids(raw: &str) -> Option<Vec<u32>> {
+        query(raw).map(word_ids)
+    }
+
     fn expected_chinese_ids(headword: &str) -> Vec<u32> {
         let mut seen = HashSet::new();
 
@@ -305,6 +309,173 @@ mod tests {
         assert_contains_all(query_by_pinyin("yi3hou4"), query_by_simplified("以后"));
         assert_contains_all(query_by_pinyin("yong4yu2"), query_by_simplified("用于"));
         assert_contains_all(query_by_pinyin("she3bu5de5"), query_by_simplified("舍不得"));
+    }
+
+    #[test]
+    fn test_english_sentence_punctuation_preserves_results_and_order() {
+        let expected = query_word_ids("watermelon");
+        let expected_direct = word_ids(query_by_english("watermelon"));
+
+        assert!(matches!(expected.as_ref(), Some(ids) if !ids.is_empty()));
+        for variant in [
+            "watermelon.",
+            "watermelon?",
+            "watermelon,",
+            "\"watermelon\"",
+            "\u{201c}watermelon\u{201d}",
+            "watermelon\u{3002}",
+            "watermelon\u{ff1f}",
+            "watermelon\u{ff0c}",
+        ] {
+            assert_eq!(
+                expected,
+                query_word_ids(variant),
+                "query variant: {variant}"
+            );
+            assert_eq!(
+                expected_direct,
+                word_ids(query_by_english(variant)),
+                "English variant: {variant}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_internal_punctuation_creates_english_token_boundaries() {
+        let expected = word_ids(query_by_english("people around the world"));
+
+        assert!(!expected.is_empty());
+        assert_eq!(
+            expected,
+            word_ids(query_by_english("  people,around\t the  world. "))
+        );
+        assert_eq!(
+            query_word_ids("people around the world"),
+            query_word_ids("people,around the world.")
+        );
+    }
+
+    #[test]
+    fn test_pinyin_sentence_punctuation_preserves_results_and_order() {
+        for (clean, variants) in [
+            (
+                "ni hao",
+                &["ni hao.", "ni hao?", "ni hao\u{3002}", "ni hao\u{ff1f}"][..],
+            ),
+            (
+                "n\u{01d0} h\u{01ce}o",
+                &["n\u{01d0} h\u{01ce}o?", "n\u{01d0} h\u{01ce}o\u{3002}"][..],
+            ),
+            ("ni3 hao3", &["ni3 hao3.", "ni3 hao3\u{ff1f}"][..]),
+            ("l\u{01dc}", &["l\u{01dc}.", "l\u{01dc}\u{3002}"][..]),
+        ] {
+            let expected = query_word_ids(clean);
+            let expected_direct = word_ids(query_by_pinyin(clean));
+
+            assert!(matches!(expected.as_ref(), Some(ids) if !ids.is_empty()));
+            for variant in variants {
+                assert_eq!(
+                    expected,
+                    query_word_ids(variant),
+                    "query variant: {variant}"
+                );
+                assert_eq!(
+                    expected_direct,
+                    word_ids(query_by_pinyin(variant)),
+                    "Pinyin variant: {variant}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_pinyin_apostrophes_use_existing_joined_index_keys() {
+        for (clean, variants) in [
+            ("xian", &["Xi'an", "Xi\u{2019}an"][..]),
+            ("xi1an1", &["Xi1'an1", "Xi1\u{2019}an1"][..]),
+            (
+                "x\u{012b}\u{0101}n",
+                &["X\u{012b}'\u{0101}n", "X\u{012b}\u{2019}\u{0101}n"][..],
+            ),
+        ] {
+            let expected = query_word_ids(clean);
+            let expected_direct = word_ids(query_by_pinyin(clean));
+
+            assert!(matches!(expected.as_ref(), Some(ids) if !ids.is_empty()));
+            for variant in variants {
+                assert_eq!(
+                    expected,
+                    query_word_ids(variant),
+                    "query variant: {variant}"
+                );
+                assert_eq!(
+                    expected_direct,
+                    word_ids(query_by_pinyin(variant)),
+                    "Pinyin variant: {variant}"
+                );
+            }
+        }
+
+        assert!(query("Xi'an")
+            .unwrap()
+            .iter()
+            .any(|entry| entry.simplified == "西安"));
+    }
+
+    #[test]
+    fn test_pinyin_u_colon_remains_supported() {
+        let expected = word_ids(query_by_pinyin("lu:4"));
+
+        assert!(!expected.is_empty());
+        assert_eq!(expected, word_ids(query_by_pinyin("lu:4.")));
+        assert_eq!(Some(expected), query_word_ids("lu:4."));
+        assert_eq!(ClassificationResult::PY, classify("lu:4."));
+    }
+
+    #[test]
+    fn test_meaningful_english_symbols_remain_supported() {
+        let clean = "the lgbt+ community";
+        let expected = word_ids(query_by_english(clean));
+
+        assert!(!expected.is_empty());
+        assert_eq!(expected, word_ids(query_by_english("the lgbt+ community.")));
+        assert_eq!(
+            query_word_ids(clean),
+            query_word_ids("the lgbt+ community.")
+        );
+    }
+
+    #[test]
+    fn test_punctuation_only_queries_are_empty_or_uncertain() {
+        let punctuation = "?!\u{3002}\u{ff0c}\u{2026}";
+
+        assert_eq!(ClassificationResult::UN, classify(punctuation));
+        assert_eq!(None, query(punctuation));
+        assert!(query_by_english(punctuation).is_empty());
+        assert!(query_by_pinyin(punctuation).is_empty());
+        assert!(query_by_chinese(punctuation).is_empty());
+    }
+
+    #[test]
+    fn test_chinese_punctuation_preserves_results_and_order() {
+        let expected = query_word_ids("你好");
+
+        assert_eq!(expected, query_word_ids("你好。"));
+        assert_eq!(expected, query_word_ids("你好？"));
+        assert_eq!(expected, query_word_ids("\u{300c}你好\u{300d}"));
+    }
+
+    #[test]
+    fn test_classification_uses_normalized_text() {
+        for (clean, punctuated) in [
+            ("watermelon", "watermelon."),
+            ("ni hao", "ni hao."),
+            ("ni3 hao3", "ni3 hao3\u{ff1f}"),
+            ("你好", "你好\u{3002}"),
+            ("xian", "Xi\u{2019}an"),
+        ] {
+            assert_eq!(classify(clean), classify(punctuated));
+        }
     }
 
     #[test]
