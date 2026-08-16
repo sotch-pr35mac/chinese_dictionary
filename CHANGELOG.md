@@ -1,6 +1,13 @@
 # Change Log
 All notable changes to this project will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org/).
 
+## [2.1.7] - 2026-08-16
+### Fixed
+- Built Chinese tokenization from the dictionary headwords and searched both script indexes to prevent incomplete lookup results
+
+### Changed
+- Updated dictionary data
+
 ## [2.1.4] - 2023-06-03
 ### Changed
 - Updated dictionary data
