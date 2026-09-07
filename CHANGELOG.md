@@ -1,6 +1,14 @@
 # Change Log
 All notable changes to this project will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org/).
 
+## [3.0.0] - 2026-09-08
+### Breaking
+- Updated `WordEntry.hsk` from a single numeric level to the HSK 2015, Proficiency Standard 2021, and HSK Exam Syllabus 2025 structures.
+- Updated embedded dictionary data to the `syng-dictionary-creator` 3.0.0 format.
+
+### Added
+- Public `HskLevel` and `HskLevels` types.
+
 ## [2.1.8] - 2026-08-16
 ### Fixed
 - Normalized whitespace and sentence punctuation before classifying and searching English and Pinyin queries

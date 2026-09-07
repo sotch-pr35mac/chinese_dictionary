@@ -54,7 +54,7 @@
 //! ```rust
 //! extern crate chinese_dictionary;
 //!
-//! use chinese_dictionary::{MeasureWord, WordEntry};
+//! use chinese_dictionary::{HskLevel, HskLevels, MeasureWord, WordEntry};
 //!
 //! let example_measure_word = MeasureWord {
 //!     traditional: "example_traditional".to_string(),
@@ -72,7 +72,10 @@
 //!     tone_marks: vec![2 as u8, 3 as u8, 4 as u8],
 //!     hash: 000000 as u64,
 //!     measure_words: vec![example_measure_word],
-//!     hsk: 6 as u8,
+//!     hsk: HskLevels {
+//!         hsk_2015: vec![HskLevel::Six],
+//!         ..HskLevels::default()
+//!     },
 //!     word_id: 11111111 as u32,
 //! };
 //! ```
@@ -93,7 +96,8 @@ mod chinese_dictionary;
 pub use self::chinese_dictionary::{
     classify, init, is_simplified, is_traditional, query, query_by_chinese, query_by_english,
     query_by_pinyin, query_by_simplified, query_by_traditional, simplified_to_traditional,
-    tokenize, traditional_to_simplified, ClassificationResult, MeasureWord, WordEntry,
+    tokenize, traditional_to_simplified, ClassificationResult, HskLevel, HskLevels, MeasureWord,
+    WordEntry,
 };
 
 #[cfg(test)]
@@ -646,5 +650,49 @@ mod tests {
             assert!(!seen.contains(&entry.word_id));
             seen.push(entry.word_id);
         }
+    }
+
+    #[test]
+    fn deserializes_hsk_levels_from_generated_dictionary_data() {
+        let entry = query_by_simplified("出租车")
+            .into_iter()
+            .next()
+            .expect("generated data should contain 出租车");
+
+        assert_eq!(entry.hsk.hsk_2015, vec![HskLevel::One]);
+        assert_eq!(entry.hsk.proficiency_standard_2021, vec![HskLevel::Two]);
+        assert_eq!(entry.hsk.hsk_exam_syllabus_2025, vec![HskLevel::One]);
+    }
+
+    #[test]
+    fn preserves_pinyin_sensitive_hsk_assignments() {
+        let entries = query_by_simplified("长");
+        let zhang = entries
+            .iter()
+            .find(|entry| entry.pinyin_numbers == "zhang3")
+            .expect("generated data should contain 长 with zhang3");
+        let chang = entries
+            .iter()
+            .find(|entry| entry.pinyin_numbers == "chang2")
+            .expect("generated data should contain 长 with chang2");
+
+        assert_eq!(
+            zhang.hsk.proficiency_standard_2021,
+            vec![HskLevel::Two, HskLevel::Six]
+        );
+        assert_eq!(chang.hsk.proficiency_standard_2021, vec![HskLevel::Two]);
+    }
+
+    #[test]
+    fn round_trips_the_shared_advanced_hsk_band() {
+        let levels = HskLevels {
+            hsk_exam_syllabus_2025: vec![HskLevel::SevenToNine],
+            ..HskLevels::default()
+        };
+
+        let encoded = bincode::serialize(&levels).unwrap();
+        let decoded: HskLevels = bincode::deserialize(&encoded).unwrap();
+
+        assert_eq!(decoded, levels);
     }
 }
