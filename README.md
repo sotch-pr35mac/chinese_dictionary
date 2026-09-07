@@ -56,7 +56,7 @@ assert_eq!(vec!["今天", "天气", "不错"], tokenize("今天天气不错"));
 ```rust
 extern crate chinese_dictionary;
 
-use chinese_dictionary::{MeasureWord, WordEntry};
+use chinese_dictionary::{HskLevel, HskLevels, MeasureWord, WordEntry};
 
 let example_measure_word = MeasureWord {
 	traditional: "example_traditional".to_string(),
@@ -74,7 +74,10 @@ let example = WordEntry {
 	tone_marks: vec![2 as u8, 3 as u8, 4 as u8],
 	hash: 000000 as u64,
 	measure_words: vec![example_measure_word],
-	hsk: 6 as u8,
+	hsk: HskLevels {
+		hsk_2015: vec![HskLevel::Six],
+		..HskLevels::default()
+	},
 	word_id: 11111111 as u32,
 };
 ```

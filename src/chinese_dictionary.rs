@@ -144,6 +144,24 @@ pub struct MeasureWord {
     pub pinyin_numbers: String,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HskLevel {
+    One,
+    Two,
+    Three,
+    Four,
+    Five,
+    Six,
+    SevenToNine,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default)]
+pub struct HskLevels {
+    pub hsk_2015: Vec<HskLevel>,
+    pub proficiency_standard_2021: Vec<HskLevel>,
+    pub hsk_exam_syllabus_2025: Vec<HskLevel>,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct WordEntry {
     pub traditional: String,
@@ -154,7 +172,7 @@ pub struct WordEntry {
     pub tone_marks: Vec<u8>,
     pub hash: u64,
     pub measure_words: Vec<MeasureWord>,
-    pub hsk: u8,
+    pub hsk: HskLevels,
     pub word_id: u32,
 }
 
