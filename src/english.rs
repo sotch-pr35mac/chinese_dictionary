@@ -334,7 +334,13 @@ fn search_internal(
         }
         row += 1;
     }
-    let has_more = concepts.iter().any(|concept| concept.next_cursor.is_some());
+    let has_more = concepts.iter().any(|concept| concept.next_cursor.is_some())
+        || concepts
+            .iter()
+            .flat_map(|concept| &concept.hits)
+            .any(|hit| {
+                !seen.contains(&hit.runtime_key) && unit_by_runtime_key(hit.runtime_key).is_some()
+            });
     Ok(EnglishSearchResult {
         concepts,
         entries,
@@ -1167,5 +1173,22 @@ mod tests {
             EnglishSearchError::InvalidPerConceptLimit.to_string(),
             "English per-concept limit must be positive"
         );
+    }
+
+    #[test]
+    fn global_limit_reports_unreturned_unique_entries() {
+        let options = EnglishSearchOptions {
+            completion: CompletionMode::Disabled,
+            limit: 1,
+            per_concept_limit: CANDIDATE_LIMIT,
+        };
+        let result = search_english("watermelon computer", options).unwrap();
+
+        assert_eq!(result.entries.len(), 1);
+        assert!(result
+            .concepts
+            .iter()
+            .all(|concept| concept.next_cursor.is_none()));
+        assert!(result.has_more);
     }
 }
