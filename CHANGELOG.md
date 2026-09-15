@@ -1,6 +1,17 @@
 # Change Log
 All notable changes to this project will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org/).
 
+## [4.0.0] - 2026-09-15
+### Breaking
+- Replaced `WordEntry` with the structured schema-5 `LexicalUnit` model and persistent `LexicalId` values.
+- Replaced the legacy exact English dictionary with bounded lexical concept search.
+
+### Added
+- Verified build-time decompression of the schema-5 Zstandard bundle.
+- Phrase, containment, morphology, optional-grammar, spelling-alias, and final-token English search.
+- Structured concept results, match evidence, work-limit reporting, and continuation cursors.
+- Consumer-local schema types and English-search format support, so the published crate has no unpublished path dependencies.
+
 ## [3.0.0] - 2026-09-08
 ### Breaking
 - Updated `WordEntry.hsk` from a single numeric level to the HSK 2015, Proficiency Standard 2021, and HSK Exam Syllabus 2025 structures.

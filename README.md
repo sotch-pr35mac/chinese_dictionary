@@ -1,95 +1,108 @@
 # chinese_dictionary
 
-### About
-A searchable Chinese / English dictionary with helpful utilities.
+A searchable Chinese/English dictionary with structured lexical data.
 
-### Features
-- Search with Traditional Chinese characters, Simplified Chinese characters, pinyin with tone marks, pinyin with tone numbers, pinyin with no tones, and English. 
-- Classify text as either English, Pinyin, or Chinese characters. 
-- Convert between Traditional and Simplified Chinese characters.
-- Tokenize Chinese characters using a dictionary-driven segmentation approach.
+## Features
 
-### Usage
-Querying the dictionary
+- Search simplified Chinese, traditional Chinese, Pinyin, or English.
+- English lexical search recognizes full phrases, phrases inside longer glosses,
+  optional articles and infinitive/copular wrappers, noun and verb inflections,
+  spelling aliases, and final-token completion.
+- Return structured definitions with source attribution, qualifiers, examples,
+  lexical categories, pronunciation variants, classifiers, and HSK memberships.
+- Use persistent `LexicalId` values for application storage.
+- Convert between traditional and simplified Chinese and tokenize Chinese text.
+
+## Basic lookup
+
 ```rust
-extern crate chinese_dictionary;
-
 use chinese_dictionary::query;
 
-// Querying the dictionary returns an `Option<Vec<&WordEntry>>`
-// Read more about the WordEntry struct below
-let text = "to run";
-let results = query(text).unwrap();
-assert_eq!("执行", results[0].simplified);
+let results = query("to run").unwrap();
+assert!(!results.is_empty());
+println!("{}: {}", results[0].simplified, results[0].english[0].gloss.value);
 ```
 
-Classifying a string of text
+`query_by_english`, `query_by_pinyin`, `query_by_simplified`,
+`query_by_traditional`, and `query_by_chinese` select a lookup path explicitly.
+All lookup functions return canonical `LexicalUnit` references.
+
+## Structured English search
+
 ```rust
-extern crate chinese_dictionary;
+use chinese_dictionary::{search_english, EnglishSearchOptions};
 
-use chinese_dictionary::{ClassificationResult, classify};
-
-// Read more about the ClassificationResult enum below 
-assert_eq!(ClassificationResult::PY, classify("nihao"));
+let result = search_english("hello my name is", EnglishSearchOptions::default())?;
+for concept in &result.concepts {
+    println!("query bytes {:?}: {} hits", concept.query_bytes, concept.hits.len());
+}
+# Ok::<(), chinese_dictionary::EnglishSearchError>(())
 ```
 
-Convert between Traditional and Simplified Chinese characters
-```rust
-extern crate chinese_dictionary;
+The structured API returns selected query concepts, their exact byte ranges,
+ranked match evidence, a deduplicated flat entry list, continuation cursors, and
+flags indicating whether more known results or undiscovered budget-limited
+matches may remain. Completion is enabled for an unfinished final token by
+default and can be disabled through `EnglishSearchOptions`.
 
-use chinese_dictionary::{simplified_to_traditional, traditional_to_simplified};
+The compatibility `query_by_english` wrapper uses the default limits of 20 hits
+per selected concept and 100 unique lexical units overall. Use `search_english`
+and `continue_english` when an application needs evidence or pagination.
 
-assert_eq!("简体字", traditional_to_simplified("簡體字"));
-assert_eq!("繁體字", simplified_to_traditional("繁体字"));
-```
+## Bundle and build behavior
 
-Segment a string of characters
-```rust
-extern crate chinese_dictionary;
+The checked-in schema-5 bundle stores dictionaries and the English search index
+as Zstandard archives. `build.rs` verifies every manifest checksum, decompresses
+the archives into Cargo's `OUT_DIR`, validates their schema and cross-references,
+and then compiles those validated bytes into the library.
 
-use chinese_dictionary::{tokenize};
+The bundle includes its CC BY-SA data license, WordNet license, source notices,
+manifest, and Wiktionary attribution.
 
-assert_eq!(vec!["今天", "天气", "不错"], tokenize("今天天气不错"));
-```
+The checked-in data directory is 73,269,161 bytes for the pinned 2026-09-15
+bundle, versus 182,699,416 bytes for the equivalent uncompressed schema-5
+artifacts. Build-time decompression does not reduce the final executable: the
+release benchmark executable is about 213 MiB because it embeds the unpacked
+dictionaries and English index.
 
-#### `WordEntry` struct
-```rust
-extern crate chinese_dictionary;
+## Performance baseline
 
-use chinese_dictionary::{HskLevel, HskLevels, MeasureWord, WordEntry};
+Run `cargo run --release --example english_search_bench` to measure the full
+embedded corpus. On an Apple M4 Max, the initial implementation measured 634 ms
+initialization and these warm p95 times: 12 µs for `watermelon`, 241 µs for
+`run`, 1.16 ms for `wat`, 6.55 ms for `the`, 31.8 ms for `to be happy`, and
+32.7 ms for `hello my name is`.
 
-let example_measure_word = MeasureWord {
-	traditional: "example_traditional".to_string(),
-	simplified: "example_simplified".to_string(),
-	pinyin_marks: "example_pinyin_marks".to_string(),
-	pinyin_numbers: "example_pinyin_numbers".to_string(),
-};
+Exact, morphology, and bounded prefix paths meet the initial target. Broad
+common-word retrieval and positional multi-concept discovery do not yet meet the
+2 ms p95 target; their deterministic work limits and `discovery_truncated`
+reporting keep the behavior bounded while those paths are optimized further.
 
-let example = WordEntry {
-	traditional: "繁體字".to_string(),
-	simplified: "繁体字".to_string(),
-	pinyin_marks: "fán tǐ zì".to_string(),
-	pinyin_numbers: "fan2 ti3 zi4".to_string(),
-	english: vec!["traditional Chinese character".to_string()],
-	tone_marks: vec![2 as u8, 3 as u8, 4 as u8],
-	hash: 000000 as u64,
-	measure_words: vec![example_measure_word],
-	hsk: HskLevels {
-		hsk_2015: vec![HskLevel::Six],
-		..HskLevels::default()
-	},
-	word_id: 11111111 as u32,
-};
-```
+## Compatibility
 
-#### `ClassificationResult` enum
-The possible values for the `ClassificationResult` enum are:
-- `PY`: Represents Pinyin
-- `EN`: Represents English
-- `ZH`: Represents Chinese
-- `UN`: Represents an uncertain classification result
+Version 4 replaces the legacy `WordEntry` model with `LexicalUnit`. Notable field
+changes include:
 
-### License
-This software is licensed under the [MIT License](https://github.com/sotch-pr35mac/chinese_dictionary/blob/master/LICENSE).
+- `word_id` becomes persistent `id: LexicalId`.
+- Pinyin fields move under `pinyin`.
+- English strings become structured `Definition` values; display text is in
+  `definition.gloss.value`.
+- Classifiers become sourced `LexicalId` references.
 
-This project uses data from the [CC-CEDICT](), licensed under the [Creative Commons Attribute-Share Alike 4.0 License](https://creativecommons.org/licenses/by-sa/4.0/). This data has been [formatted](https://github.com/sotch-pr35mac/syng-dictionary-creator) to work with this project. The `.dictionary` files within the `data/` directory are licensed under the [Creative Commons Attribute-Share Alike 4.0 License](https://creativecommons.org/licenses/by-sa/4.0/).
+Runtime `u32` keys are private to a particular bundle. Persist `LexicalId` and
+resolve it with `query_by_id` or `query_by_id_str`.
+
+## Bundle compatibility
+
+The schema-5 model and English-search reader are private modules in this crate.
+Consequently, a published `chinese_dictionary` package has no dependency on the
+generator repository. When the generator changes either binary format, its
+schema or format version must be bumped and the matching consumer modules and
+bundle must be updated together.
+
+## License
+
+Library source is licensed under the MIT License. The bundled dictionary data is
+licensed and attributed separately in `data/LICENSE-DATA.txt`,
+`data/LICENSE-WORDNET.txt`, `data/NOTICE.md`, `data/manifest.json`, and
+`data/wiktionary-attribution.json`.
