@@ -221,6 +221,14 @@ struct TokenChoice {
     added_characters: u16,
 }
 
+struct PreparedForm {
+    tokens: Vec<String>,
+    alternatives: Vec<Vec<TokenChoice>>,
+    literal_text_key: Option<TextKey>,
+    flags: u16,
+    completion: bool,
+}
+
 struct Expansion<'a> {
     plans: &'a mut BTreeSet<Plan>,
     states: &'a mut usize,
@@ -380,6 +388,7 @@ fn discover(raw: &str, completion_mode: CompletionMode) -> Result<Discovery, Eng
     let mut occurrence_records = 0usize;
     let mut planned = 0usize;
     let mut truncated = false;
+    let mut alternatives_by_token = BTreeMap::<String, Vec<TokenChoice>>::new();
     for view in query_views(raw) {
         for segment in &view.segments {
             if segment.tokens.is_empty() {
@@ -429,13 +438,9 @@ fn discover(raw: &str, completion_mode: CompletionMode) -> Result<Discovery, Eng
                     if forms.is_empty() {
                         continue;
                     }
-                    if planned >= PLAN_LIMIT {
-                        truncated = true;
-                        break;
-                    }
-                    planned += 1;
+                    let is_final = groups[end - 1].raw_range.end == raw.len();
+                    let mut prepared_forms = Vec::new();
                     for (tokens, flags, grammar_reduced) in forms {
-                        let is_final = groups[end - 1].raw_range.end == raw.len();
                         let allow_completion = completion_eligible
                             && is_final
                             && flags == 0
@@ -443,10 +448,45 @@ fn discover(raw: &str, completion_mode: CompletionMode) -> Result<Discovery, Eng
                             && tokens
                                 .last()
                                 .is_some_and(|token| token.chars().count() >= PREFIX_MINIMUM);
-                        let mut plans = discover_form(
-                            &tokens,
+                        let mut alternatives = Vec::with_capacity(tokens.len());
+                        for token in &tokens {
+                            let choices = if let Some(choices) = alternatives_by_token.get(token) {
+                                choices.clone()
+                            } else {
+                                let choices = token_alternatives(token)?;
+                                alternatives_by_token.insert(token.clone(), choices.clone());
+                                choices
+                            };
+                            alternatives.push(choices);
+                        }
+                        let literal_text_key = INDEX.phrase_key(&tokens.join(" "))?;
+                        let exact_viable = alternatives.iter().all(|choices| !choices.is_empty());
+                        let completion_viable = allow_completion
+                            && alternatives[..alternatives.len() - 1]
+                                .iter()
+                                .all(|choices| !choices.is_empty());
+                        if literal_text_key.is_none() && !exact_viable && !completion_viable {
+                            continue;
+                        }
+                        prepared_forms.push(PreparedForm {
+                            tokens,
+                            alternatives,
+                            literal_text_key,
                             flags,
-                            allow_completion,
+                            completion: allow_completion,
+                        });
+                    }
+                    if prepared_forms.is_empty() {
+                        continue;
+                    }
+                    if planned >= PLAN_LIMIT {
+                        truncated = true;
+                        break;
+                    }
+                    planned += 1;
+                    for form in prepared_forms {
+                        let mut plans = discover_form(
+                            form,
                             &mut expanded_states,
                             &mut occurrence_records,
                             &mut truncated,
@@ -487,20 +527,20 @@ fn discover(raw: &str, completion_mode: CompletionMode) -> Result<Discovery, Eng
 }
 
 fn discover_form(
-    tokens: &[String],
-    flags: u16,
-    completion: bool,
+    form: PreparedForm,
     expanded_states: &mut usize,
     occurrence_records: &mut usize,
     truncated: &mut bool,
 ) -> Result<BTreeSet<Plan>, EnglishSearchError> {
+    let PreparedForm {
+        tokens,
+        alternatives,
+        literal_text_key,
+        flags,
+        completion,
+    } = form;
     let mut plans = BTreeSet::new();
-    let mut alternatives = Vec::new();
-    for token in tokens {
-        alternatives.push(token_alternatives(token)?);
-    }
-    let literal_phrase = tokens.join(" ");
-    if let Some(text_key) = INDEX.phrase_key(&literal_phrase)? {
+    if let Some(text_key) = literal_text_key {
         plans.insert(Plan {
             kind: PlanKind::Whole,
             text_key: Some(text_key),
@@ -1145,6 +1185,22 @@ mod tests {
         let result = search_english(&raw, EnglishSearchOptions::default()).unwrap();
         assert!(result.concepts.iter().any(|concept| {
             concept.query_bytes == (phrase_start..raw.len()) && !concept.hits.is_empty()
+        }));
+    }
+
+    #[test]
+    fn unavailable_tokens_do_not_exhaust_discovery_budget() {
+        let mut raw = std::iter::repeat_n("qzxv", 90)
+            .collect::<Vec<_>>()
+            .join(" ");
+        raw.push(' ');
+        let watermelon_start = raw.len();
+        raw.push_str("watermelon");
+
+        let result = search_english(&raw, EnglishSearchOptions::default()).unwrap();
+        assert!(!result.discovery_truncated);
+        assert!(result.concepts.iter().any(|concept| {
+            concept.query_bytes == (watermelon_start..raw.len()) && !concept.hits.is_empty()
         }));
     }
 
