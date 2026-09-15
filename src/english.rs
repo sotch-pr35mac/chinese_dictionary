@@ -52,6 +52,7 @@ pub enum CompletionMode {
 pub struct EnglishSearchOptions {
     pub completion: CompletionMode,
     pub limit: usize,
+    /// Maximum hits returned for each concept; must be positive.
     pub per_concept_limit: usize,
 }
 
@@ -125,7 +126,12 @@ pub struct EnglishPage {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum EnglishSearchError {
-    InputTooLong { bytes: usize, maximum: usize },
+    InputTooLong {
+        bytes: usize,
+        maximum: usize,
+    },
+    /// A per-concept page size of zero cannot make pagination progress.
+    InvalidPerConceptLimit,
     InvalidIndex(String),
     StaleCursor,
 }
@@ -137,6 +143,9 @@ impl fmt::Display for EnglishSearchError {
                 formatter,
                 "English query is {bytes} bytes; maximum is {maximum}"
             ),
+            Self::InvalidPerConceptLimit => {
+                formatter.write_str("English per-concept limit must be positive")
+            }
             Self::InvalidIndex(message) => {
                 write!(formatter, "invalid English search index: {message}")
             }
@@ -257,6 +266,9 @@ fn search_internal(
     options: EnglishSearchOptions,
     page_offset: usize,
 ) -> Result<EnglishSearchResult, EnglishSearchError> {
+    if options.per_concept_limit == 0 {
+        return Err(EnglishSearchError::InvalidPerConceptLimit);
+    }
     let metadata = INDEX.metadata()?;
     let maximum = 4_096usize.max(metadata.maximum_phrase_bytes as usize);
     if raw.len() > maximum {
@@ -339,6 +351,7 @@ fn public_hit(hit: &RankedHit) -> EnglishHit {
 }
 
 fn discover(raw: &str, completion_mode: CompletionMode) -> Result<Discovery, EnglishSearchError> {
+    let maximum_text_tokens = INDEX.metadata()?.maximum_text_tokens as usize;
     let base = tokenize_query(raw);
     let mut groups = Vec::new();
     for segment in &base {
@@ -374,12 +387,10 @@ fn discover(raw: &str, completion_mode: CompletionMode) -> Result<Discovery, Eng
                 .into_iter()
                 .collect::<Vec<_>>();
             for length in (1..=segment_group_ids.len()).rev() {
+                if length > maximum_text_tokens {
+                    continue;
+                }
                 for local_start in 0..=segment_group_ids.len() - length {
-                    if planned >= PLAN_LIMIT {
-                        truncated = true;
-                        break;
-                    }
-                    planned += 1;
                     let first_id = segment_group_ids[local_start];
                     let last_id = segment_group_ids[local_start + length - 1];
                     let Some(start) = groups.iter().position(|group| group.raw_group == first_id)
@@ -406,12 +417,18 @@ fn discover(raw: &str, completion_mode: CompletionMode) -> Result<Discovery, Eng
                             true,
                         ));
                     }
+                    forms.retain(|(tokens, _, _)| {
+                        !tokens.is_empty() && tokens.len() <= maximum_text_tokens
+                    });
+                    if forms.is_empty() {
+                        continue;
+                    }
+                    if planned >= PLAN_LIMIT {
+                        truncated = true;
+                        break;
+                    }
+                    planned += 1;
                     for (tokens, flags, grammar_reduced) in forms {
-                        if tokens.is_empty()
-                            || tokens.len() > INDEX.metadata()?.maximum_text_tokens as usize
-                        {
-                            continue;
-                        }
                         let is_final = groups[end - 1].raw_range.end == raw.len();
                         let allow_completion = completion_eligible
                             && is_final
@@ -1085,4 +1102,70 @@ fn alias_mask() -> u16 {
         | DERIVATION_HYPHENS_JOINED
         | DERIVATION_HYPHENS_SEPARATED
         | DERIVATION_GRAMMAR_REDUCED
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn impossible_long_spans_do_not_exhaust_discovery_budget() {
+        const QUERY_TOKENS: usize = 184;
+
+        let maximum_text_tokens = INDEX.metadata().unwrap().maximum_text_tokens as usize;
+        let phrase_fst = INDEX.phrase_fst().unwrap();
+        let mut phrases = phrase_fst.into_stream();
+        let mut maximum_phrase = None;
+        while let Some((bytes, _)) = phrases.next() {
+            let phrase = std::str::from_utf8(bytes).unwrap();
+            if phrase.split_whitespace().count() == maximum_text_tokens {
+                maximum_phrase = Some(phrase.to_owned());
+                break;
+            }
+        }
+        let maximum_phrase =
+            maximum_phrase.expect("the index metadata maximum must be attained by a phrase");
+        assert!(maximum_text_tokens < QUERY_TOKENS);
+
+        let filler_count = QUERY_TOKENS - maximum_text_tokens;
+        let mut raw = std::iter::repeat_n("qzxv", filler_count)
+            .collect::<Vec<_>>()
+            .join(" ");
+        raw.push(' ');
+        let phrase_start = raw.len();
+        raw.push_str(&maximum_phrase);
+        assert_eq!(raw.split_whitespace().count(), QUERY_TOKENS);
+
+        let result = search_english(&raw, EnglishSearchOptions::default()).unwrap();
+        assert!(result.concepts.iter().any(|concept| {
+            concept.query_bytes == (phrase_start..raw.len()) && !concept.hits.is_empty()
+        }));
+    }
+
+    #[test]
+    fn zero_per_concept_limit_is_rejected_for_initial_searches_and_continuations() {
+        let options = EnglishSearchOptions {
+            per_concept_limit: 0,
+            ..EnglishSearchOptions::default()
+        };
+        assert!(matches!(
+            search_english("run", options),
+            Err(EnglishSearchError::InvalidPerConceptLimit)
+        ));
+
+        let cursor = EnglishCursor {
+            raw: "run".to_owned(),
+            options,
+            query_bytes: 0..3,
+            offset: 0,
+        };
+        assert!(matches!(
+            continue_english(&cursor),
+            Err(EnglishSearchError::InvalidPerConceptLimit)
+        ));
+        assert_eq!(
+            EnglishSearchError::InvalidPerConceptLimit.to_string(),
+            "English per-concept limit must be positive"
+        );
+    }
 }

@@ -1,6 +1,6 @@
 //! Consumer-local schema-5 model and stable lexical identity primitives.
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use sha2::{Digest, Sha256};
 use std::fmt;
 use unicode_normalization::UnicodeNormalization;
@@ -11,9 +11,19 @@ pub const SCHEMA_VERSION: u32 = 5;
 pub const IDENTITY_VERSION: u8 = 1;
 
 /// Persistent identity derived from normalized headwords and canonical Pinyin.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(transparent)]
 pub struct LexicalId(String);
+
+impl<'de> Deserialize<'de> for LexicalId {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = String::deserialize(deserializer)?;
+        Self::parse(value).map_err(serde::de::Error::custom)
+    }
+}
 
 impl LexicalId {
     /// Computes an identity from simplified, traditional, and numbered-Pinyin fields.
@@ -407,6 +417,34 @@ mod tests {
             LexicalId::new("烟火", "煙火", "yan1huo3").unwrap(),
             LexicalId::new("烟火", "煙火", "yan1huo5").unwrap()
         );
+    }
+
+    #[test]
+    fn lexical_id_bincode_round_trip_preserves_its_representation() {
+        let id = LexicalId::new("烟火", "煙火", "yan1huo3").unwrap();
+        let encoded = bincode::serialize(&id).unwrap();
+
+        assert_eq!(encoded, bincode::serialize(id.as_str()).unwrap());
+        assert_eq!(id, bincode::deserialize(&encoded).unwrap());
+    }
+
+    #[test]
+    fn lexical_id_deserialization_rejects_invalid_values() {
+        let invalid = [
+            format!("2:{}", "0".repeat(64)),
+            format!("1:{}", "0".repeat(63)),
+            format!("1:{}A", "0".repeat(63)),
+            format!("1:{}g", "0".repeat(63)),
+        ];
+
+        for value in invalid {
+            let encoded = bincode::serialize(&value).unwrap();
+            let error = bincode::deserialize::<LexicalId>(&encoded).unwrap_err();
+            assert!(
+                error.to_string().contains("InvalidLexicalId"),
+                "unexpected error for {value:?}: {error}"
+            );
+        }
     }
 
     #[test]
