@@ -1,15 +1,18 @@
 use crate::chinese_dictionary::unit_by_runtime_key;
 use crate::english_search_format::{
-    query_views, reduce_optional_grammar, tokenize_query, EnglishSearchIndex, FormatError,
-    RuntimeKey, TextKey, TokenId, DERIVATION_APOSTROPHE_REMOVED, DERIVATION_GRAMMAR_REDUCED,
-    DERIVATION_HYPHENS_JOINED, DERIVATION_HYPHENS_SEPARATED, DERIVATION_PARENTHETICAL_OMISSION,
+    query_views_from_literal, reduce_optional_grammar, tokenize_query, EnglishSearchIndex,
+    FormatError, RuntimeKey, TextKey, TokenId, DERIVATION_APOSTROPHE_REMOVED,
+    DERIVATION_GRAMMAR_REDUCED, DERIVATION_HYPHENS_JOINED, DERIVATION_HYPHENS_SEPARATED,
+    DERIVATION_PARENTHETICAL_OMISSION,
 };
-use crate::model::LexicalUnit;
+use crate::model::LexicalUnitRef;
 use fst::{IntoStreamer, Streamer};
 use once_cell::sync::Lazy;
+use serde::Serialize;
 use std::cmp::Ordering;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{hash_map::Entry, BTreeMap, BTreeSet, HashMap};
 use std::fmt;
+use std::hash::{BuildHasherDefault, Hasher};
 use std::ops::Range;
 
 const PREFIX_MINIMUM: usize = 3;
@@ -17,42 +20,110 @@ const PREFIX_SCAN_LIMIT: usize = 256;
 const EXPANDED_STATE_LIMIT: usize = 4_096;
 const OCCURRENCE_LIMIT: usize = 8_192;
 const PLAN_LIMIT: usize = 4_096;
-const CANDIDATE_LIMIT: usize = 2_048;
+const MAXIMUM_RESULT_LIMIT: usize = 200;
+const RETAINED_HIT_BATCH_MULTIPLIER: usize = 4;
 
 static INDEX: Lazy<EnglishSearchIndex<'static>> = Lazy::new(|| {
     EnglishSearchIndex::parse(include_bytes!(concat!(env!("OUT_DIR"), "/english.search")))
         .expect("build.rs validated the English search index")
 });
-static MORPHOLOGY_TOKENS: Lazy<Vec<Vec<TokenId>>> = Lazy::new(|| {
-    INDEX
-        .morphology_families()
-        .map(|family| {
-            family
-                .expect("build.rs validated morphology families")
-                .corpus_tokens()
-                .collect::<Result<Vec<_>, _>>()
-                .expect("build.rs validated morphology family tokens")
-        })
-        .collect()
+static INDEX_LIMITS: Lazy<IndexLimits> = Lazy::new(|| {
+    let metadata = INDEX
+        .metadata()
+        .expect("build.rs validated English search metadata");
+    IndexLimits {
+        maximum_text_tokens: metadata.maximum_text_tokens as usize,
+        maximum_phrase_bytes: metadata.maximum_phrase_bytes as usize,
+    }
 });
+static MORPHOLOGY_TOKENS: Lazy<MorphologyTokenCache> = Lazy::new(|| {
+    let mut tokens = Vec::new();
+    let mut ranges = Vec::new();
+    for family in INDEX.morphology_families() {
+        let family = family.expect("build.rs validated morphology families");
+        let start = tokens.len();
+        tokens.extend(
+            family
+                .corpus_tokens()
+                .map(|token| token.expect("build.rs validated morphology family tokens")),
+        );
+        ranges.push(start..tokens.len());
+    }
+    MorphologyTokenCache { tokens, ranges }
+});
+
+#[derive(Clone, Copy)]
+struct IndexLimits {
+    maximum_text_tokens: usize,
+    maximum_phrase_bytes: usize,
+}
+
+struct MorphologyTokenCache {
+    tokens: Vec<TokenId>,
+    ranges: Vec<Range<usize>>,
+}
+
+impl MorphologyTokenCache {
+    fn family(&self, index: usize) -> Option<&[TokenId]> {
+        self.ranges
+            .get(index)
+            .map(|range| &self.tokens[range.clone()])
+    }
+}
+
+struct IntegerHasher(u64);
+
+impl Default for IntegerHasher {
+    fn default() -> Self {
+        Self(0xcbf2_9ce4_8422_2325)
+    }
+}
+
+impl Hasher for IntegerHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+
+    fn write(&mut self, bytes: &[u8]) {
+        // Runtime keys are u32 and use `write_u32`; retain a deterministic
+        // fallback so this hasher remains correct if Hash changes internally.
+        for byte in bytes {
+            self.0 = (self.0 ^ u64::from(*byte)).wrapping_mul(0x100_0000_01b3);
+        }
+    }
+
+    fn write_u32(&mut self, value: u32) {
+        self.0 = u64::from(value);
+    }
+}
+
+type IntegerMap<V> = HashMap<u32, V, BuildHasherDefault<IntegerHasher>>;
 
 pub(crate) fn init_english() {
     Lazy::force(&INDEX);
+    Lazy::force(&INDEX_LIMITS);
     Lazy::force(&MORPHOLOGY_TOKENS);
 }
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+/// Controls whether an unfinished final token may match indexed completions.
 pub enum CompletionMode {
+    /// Match only complete normalized tokens.
     Disabled,
     #[default]
+    /// Complete the final token when it contains at least three characters.
     FinalToken,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
+/// Limits and completion behavior for [`search_english`].
 pub struct EnglishSearchOptions {
+    /// Completion behavior for the final query token.
     pub completion: CompletionMode,
+    /// Maximum number of unique entries returned overall; must be in `1..=200`.
     pub limit: usize,
-    /// Maximum hits returned for each concept; must be positive.
+    /// Maximum hits returned for each concept; must be in `1..=200`.
     pub per_concept_limit: usize,
 }
 
@@ -60,80 +131,94 @@ impl Default for EnglishSearchOptions {
     fn default() -> Self {
         Self {
             completion: CompletionMode::FinalToken,
-            limit: 100,
+            limit: 50,
             per_concept_limit: 20,
         }
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "kebab-case")]
+/// How the selected query span matched a stored English search text.
 pub enum EnglishMatchKind {
+    /// The query span matched the entire stored search text.
     WholeText,
+    /// The query span matched consecutive tokens inside a longer search text.
     ContainedText,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+/// Ranking evidence retained for one structured English hit.
 pub struct EnglishMatchEvidence {
+    /// Whether the match covered all or part of a stored search text.
     pub kind: EnglishMatchKind,
+    /// Whether final-token completion contributed to this match.
     pub completion: bool,
+    /// Normalization derivations applied to the query.
     pub query_derivations: u16,
+    /// Normalization derivations recorded on the stored text, when available.
     pub stored_derivations: Option<u16>,
+    /// Whether the stored text is a derived spelling or grammar form.
     pub stored_derived: bool,
+    /// Whether the stored form omitted parenthetical text.
     pub parenthetical_omission: bool,
+    /// Number of transformations applied to the stored form.
     pub stored_transformation_count: u16,
+    /// Number of query tokens matched through morphology.
     pub morphology_changes: u16,
+    /// Stored tokens surrounding a contained match.
     pub surrounding_tokens: u32,
+    /// Characters supplied by final-token completion.
     pub added_characters: u16,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+/// One ranked hit in a structured English concept.
 pub struct EnglishHit {
-    pub runtime_key: u32,
+    /// Index into [`EnglishSearchResult::entries`].
+    pub entry_index: usize,
+    /// Evidence used to rank this hit.
     pub evidence: EnglishMatchEvidence,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct EnglishCursor {
-    raw: String,
-    options: EnglishSearchOptions,
-    query_bytes: Range<usize>,
-    offset: usize,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+/// A selected, non-overlapping query span and its ranked returned hits.
 pub struct EnglishConcept {
+    /// UTF-8 byte range in the original query.
     pub query_bytes: Range<usize>,
+    /// Ranked hits whose indices refer to the result's entry array.
     pub hits: Vec<EnglishHit>,
-    pub next_cursor: Option<EnglishCursor>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
+/// Structured English results with borrowed lexical entries.
 pub struct EnglishSearchResult {
+    /// Selected concepts in query order.
     pub concepts: Vec<EnglishConcept>,
-    pub entries: Vec<&'static LexicalUnit>,
-    pub discovery_truncated: bool,
-    pub has_more: bool,
-}
-
-#[derive(Debug)]
-pub struct EnglishPage {
-    pub query_bytes: Range<usize>,
-    pub hits: Vec<EnglishHit>,
-    pub entries: Vec<&'static LexicalUnit>,
-    pub next_cursor: Option<EnglishCursor>,
+    /// Unique entries merged round-robin across concepts.
+    pub entries: Vec<LexicalUnitRef<'static>>,
+    /// Whether discovery stopped at a configured work budget.
+    ///
+    /// Ordinary result limits and proven-safe top-k pruning do not set this.
     pub discovery_truncated: bool,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+/// Failure returned by [`search_english`].
 pub enum EnglishSearchError {
+    /// The UTF-8 input exceeds the index-supported maximum.
     InputTooLong {
+        /// Input length in UTF-8 bytes.
         bytes: usize,
+        /// Maximum accepted UTF-8 byte length.
         maximum: usize,
     },
-    /// A per-concept page size of zero cannot make pagination progress.
+    /// The overall result limit is outside `1..=200`.
+    InvalidLimit,
+    /// The per-concept result limit is outside `1..=200`.
     InvalidPerConceptLimit,
+    /// The embedded search index is malformed or incompatible.
     InvalidIndex(String),
-    StaleCursor,
 }
 
 impl fmt::Display for EnglishSearchError {
@@ -143,14 +228,14 @@ impl fmt::Display for EnglishSearchError {
                 formatter,
                 "English query is {bytes} bytes; maximum is {maximum}"
             ),
+            Self::InvalidLimit => {
+                formatter.write_str("English result limit must be between 1 and 200")
+            }
             Self::InvalidPerConceptLimit => {
-                formatter.write_str("English per-concept limit must be positive")
+                formatter.write_str("English per-concept limit must be between 1 and 200")
             }
             Self::InvalidIndex(message) => {
                 write!(formatter, "invalid English search index: {message}")
-            }
-            Self::StaleCursor => {
-                formatter.write_str("English search cursor no longer matches its query plan")
             }
         }
     }
@@ -196,7 +281,7 @@ struct Candidate {
     best_class: usize,
 }
 
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 struct Rank(u8, u8, u8, u8, u32, u16, u16, u32);
 
 #[derive(Clone, Debug)]
@@ -241,93 +326,46 @@ struct Discovery {
     truncated: bool,
 }
 
+/// Searches English definitions and returns structured concept and evidence data.
+///
+/// Entry data borrows directly from the embedded dictionary archive. `limit`
+/// and `per_concept_limit` must both be in `1..=200`.
 pub fn search_english(
     raw: &str,
     options: EnglishSearchOptions,
 ) -> Result<EnglishSearchResult, EnglishSearchError> {
-    search_internal(raw, options, 0)
-}
-
-pub fn continue_english(cursor: &EnglishCursor) -> Result<EnglishPage, EnglishSearchError> {
-    let result = search_internal(&cursor.raw, cursor.options, cursor.offset)?;
-    let concept = result
-        .concepts
-        .into_iter()
-        .find(|concept| concept.query_bytes == cursor.query_bytes)
-        .ok_or(EnglishSearchError::StaleCursor)?;
-    let entries = concept
-        .hits
-        .iter()
-        .filter_map(|hit| unit_by_runtime_key(hit.runtime_key))
-        .collect();
-    Ok(EnglishPage {
-        query_bytes: concept.query_bytes,
-        hits: concept.hits,
-        entries,
-        next_cursor: concept.next_cursor,
-        discovery_truncated: result.discovery_truncated,
-    })
-}
-
-fn search_internal(
-    raw: &str,
-    options: EnglishSearchOptions,
-    page_offset: usize,
-) -> Result<EnglishSearchResult, EnglishSearchError> {
-    if options.per_concept_limit == 0 {
+    if !(1..=MAXIMUM_RESULT_LIMIT).contains(&options.limit) {
+        return Err(EnglishSearchError::InvalidLimit);
+    }
+    if !(1..=MAXIMUM_RESULT_LIMIT).contains(&options.per_concept_limit) {
         return Err(EnglishSearchError::InvalidPerConceptLimit);
     }
-    let metadata = INDEX.metadata()?;
-    let maximum = 4_096usize.max(metadata.maximum_phrase_bytes as usize);
+    let maximum = 4_096usize.max(INDEX_LIMITS.maximum_phrase_bytes);
     if raw.len() > maximum {
         return Err(EnglishSearchError::InputTooLong {
             bytes: raw.len(),
             maximum,
         });
     }
-    let mut discovery = discover(raw, options.completion)?;
+    let discovery = discover(raw, options.completion)?;
     let selected = choose_concepts(&discovery.groups, &discovery.candidates);
     let mut pools = Vec::new();
+    let retained_per_concept = options.limit.min(options.per_concept_limit);
     for candidate_index in selected {
         let candidate = &discovery.candidates[candidate_index];
-        let mut pool = retrieve(candidate)?;
-        if pool.len() > CANDIDATE_LIMIT {
-            pool.truncate(CANDIDATE_LIMIT);
-            discovery.truncated = true;
-        }
+        let pool = retrieve(candidate, retained_per_concept)?;
         pools.push((candidate, pool));
     }
-    let mut concepts = Vec::new();
-    for (candidate, pool) in &pools {
-        let end = page_offset
-            .saturating_add(options.per_concept_limit)
-            .min(pool.len());
-        let hits = if page_offset < pool.len() {
-            pool[page_offset..end].iter().map(public_hit).collect()
-        } else {
-            Vec::new()
-        };
-        let next_cursor = (end < pool.len()).then(|| EnglishCursor {
-            raw: raw.to_owned(),
-            options,
-            query_bytes: candidate.raw_range.clone(),
-            offset: end,
-        });
-        concepts.push(EnglishConcept {
-            query_bytes: candidate.raw_range.clone(),
-            hits,
-            next_cursor,
-        });
-    }
     let mut entries = Vec::new();
-    let mut seen = BTreeSet::new();
+    let mut entry_indices = IntegerMap::default();
     let mut row = 0;
     while entries.len() < options.limit {
         let mut added = false;
-        for concept in &concepts {
-            if let Some(hit) = concept.hits.get(row) {
-                if seen.insert(hit.runtime_key) {
+        for (_, pool) in &pools {
+            if let Some(hit) = pool.get(row) {
+                if let Entry::Vacant(entry) = entry_indices.entry(hit.runtime_key) {
                     if let Some(unit) = unit_by_runtime_key(hit.runtime_key) {
+                        entry.insert(entries.len());
                         entries.push(unit);
                     }
                 }
@@ -342,30 +380,37 @@ fn search_internal(
         }
         row += 1;
     }
-    let has_more = concepts.iter().any(|concept| concept.next_cursor.is_some())
-        || concepts
-            .iter()
-            .flat_map(|concept| &concept.hits)
-            .any(|hit| {
-                !seen.contains(&hit.runtime_key) && unit_by_runtime_key(hit.runtime_key).is_some()
-            });
+    let concepts = pools
+        .into_iter()
+        .map(|(candidate, pool)| EnglishConcept {
+            query_bytes: candidate.raw_range.clone(),
+            hits: pool
+                .into_iter()
+                .filter_map(|hit| {
+                    entry_indices
+                        .get(&hit.runtime_key)
+                        .copied()
+                        .map(|entry_index| public_hit(hit, entry_index))
+                })
+                .collect(),
+        })
+        .collect();
     Ok(EnglishSearchResult {
         concepts,
         entries,
         discovery_truncated: discovery.truncated,
-        has_more,
     })
 }
 
-fn public_hit(hit: &RankedHit) -> EnglishHit {
+fn public_hit(hit: RankedHit, entry_index: usize) -> EnglishHit {
     EnglishHit {
-        runtime_key: hit.runtime_key,
-        evidence: hit.evidence.clone(),
+        entry_index,
+        evidence: hit.evidence,
     }
 }
 
 fn discover(raw: &str, completion_mode: CompletionMode) -> Result<Discovery, EnglishSearchError> {
-    let maximum_text_tokens = INDEX.metadata()?.maximum_text_tokens as usize;
+    let maximum_text_tokens = INDEX_LIMITS.maximum_text_tokens;
     let base = tokenize_query(raw);
     let mut groups = Vec::new();
     for segment in &base {
@@ -384,12 +429,17 @@ fn discover(raw: &str, completion_mode: CompletionMode) -> Result<Discovery, Eng
     }
     let completion_eligible = completion_mode == CompletionMode::FinalToken;
     let mut by_span = BTreeMap::<(usize, usize), Candidate>::new();
+    let group_positions = groups
+        .iter()
+        .enumerate()
+        .map(|(index, group)| (group.raw_group, index))
+        .collect::<IntegerMap<_>>();
     let mut expanded_states = 0usize;
     let mut occurrence_records = 0usize;
     let mut planned = 0usize;
     let mut truncated = false;
     let mut alternatives_by_token = BTreeMap::<String, Vec<TokenChoice>>::new();
-    for view in query_views(raw) {
+    'views: for view in query_views_from_literal(&base) {
         for segment in &view.segments {
             if segment.tokens.is_empty() {
                 continue;
@@ -401,6 +451,15 @@ fn discover(raw: &str, completion_mode: CompletionMode) -> Result<Discovery, Eng
                 .collect::<BTreeSet<_>>()
                 .into_iter()
                 .collect::<Vec<_>>();
+            let full_span = segment_group_ids
+                .first()
+                .zip(segment_group_ids.last())
+                .and_then(|(first, last)| {
+                    Some((
+                        *group_positions.get(first)?,
+                        *group_positions.get(last)? + 1,
+                    ))
+                });
             for length in (1..=segment_group_ids.len()).rev() {
                 if length > maximum_text_tokens {
                     continue;
@@ -408,12 +467,10 @@ fn discover(raw: &str, completion_mode: CompletionMode) -> Result<Discovery, Eng
                 for local_start in 0..=segment_group_ids.len() - length {
                     let first_id = segment_group_ids[local_start];
                     let last_id = segment_group_ids[local_start + length - 1];
-                    let Some(start) = groups.iter().position(|group| group.raw_group == first_id)
-                    else {
+                    let Some(&start) = group_positions.get(&first_id) else {
                         continue;
                     };
-                    let Some(last) = groups.iter().position(|group| group.raw_group == last_id)
-                    else {
+                    let Some(&last) = group_positions.get(&last_id) else {
                         continue;
                     };
                     let end = last + 1;
@@ -481,7 +538,7 @@ fn discover(raw: &str, completion_mode: CompletionMode) -> Result<Discovery, Eng
                     }
                     if planned >= PLAN_LIMIT {
                         truncated = true;
-                        break;
+                        break 'views;
                     }
                     planned += 1;
                     for form in prepared_forms {
@@ -504,7 +561,23 @@ fn discover(raw: &str, completion_mode: CompletionMode) -> Result<Discovery, Eng
                             best_class: usize::MAX,
                         });
                         candidate.plans.append(&mut plans);
+                        if truncated
+                            && (expanded_states >= EXPANDED_STATE_LIMIT
+                                || occurrence_records >= OCCURRENCE_LIMIT)
+                        {
+                            break 'views;
+                        }
                     }
+                }
+                // A match spanning this entire hard-boundary segment always
+                // beats every subdivision in concept selection: coverage is
+                // equal and the squared-span score is strictly larger. Other
+                // query views still contribute alternate plans to the full
+                // span before making the same safe decision independently.
+                if length == segment_group_ids.len()
+                    && full_span.is_some_and(|span| by_span.contains_key(&span))
+                {
+                    break;
                 }
             }
         }
@@ -688,14 +761,11 @@ fn enumerate_contextual_completions(
         return Ok(());
     }
 
-    let preceding = selected
-        .iter()
-        .map(|choice| INDEX.token_string(choice.id))
-        .collect::<Result<Vec<_>, _>>()?
-        .join(" ");
+    let preceding = phrase_for_choices(selected)?;
     let phrase_prefix = format!("{preceding} {typed_prefix}");
     let map = INDEX.phrase_fst()?;
     let mut stream = map.range().ge(&phrase_prefix).into_stream();
+    let typed_characters = typed_prefix.chars().count();
     while let Some((key, value)) = stream.next() {
         if !key.starts_with(phrase_prefix.as_bytes()) {
             break;
@@ -714,7 +784,7 @@ fn enumerate_contextual_completions(
         let added_characters = completed
             .chars()
             .count()
-            .saturating_sub(typed_prefix.chars().count())
+            .saturating_sub(typed_characters)
             .min(u16::MAX as usize) as u16;
         expansion.plans.insert(Plan {
             kind: PlanKind::Whole,
@@ -743,7 +813,7 @@ fn token_alternatives(surface: &str) -> Result<Vec<TokenChoice>, EnglishSearchEr
         for family in analyses {
             let family = family?;
             let tokens = MORPHOLOGY_TOKENS
-                .get(family.get() as usize)
+                .family(family.get() as usize)
                 .ok_or_else(|| {
                     EnglishSearchError::InvalidIndex("morphology family ID is out of range".into())
                 })?;
@@ -769,6 +839,7 @@ fn prefix_tokens(
     let map = INDEX.token_fst()?;
     let mut stream = map.range().ge(prefix).into_stream();
     let mut result = Vec::new();
+    let prefix_characters = prefix.chars().count();
     while let Some((key, value)) = stream.next() {
         if !key.starts_with(prefix.as_bytes()) {
             break;
@@ -782,7 +853,7 @@ fn prefix_tokens(
         let added = completed
             .chars()
             .count()
-            .saturating_sub(prefix.chars().count())
+            .saturating_sub(prefix_characters)
             .min(u16::MAX as usize) as u16;
         result.push(TokenChoice {
             id: TokenId::new(
@@ -810,11 +881,7 @@ fn enumerate_whole(
             *expansion.truncated = true;
             return Ok(());
         }
-        let phrase = selected
-            .iter()
-            .map(|choice| INDEX.token_string(choice.id))
-            .collect::<Result<Vec<_>, _>>()?
-            .join(" ");
+        let phrase = phrase_for_choices(selected)?;
         if let Some(text_key) = INDEX.phrase_key(&phrase)? {
             expansion.plans.insert(Plan {
                 kind: PlanKind::Whole,
@@ -840,6 +907,17 @@ fn enumerate_whole(
         selected.pop();
     }
     Ok(())
+}
+
+fn phrase_for_choices(selected: &[TokenChoice]) -> Result<String, EnglishSearchError> {
+    let mut phrase = String::new();
+    for (index, choice) in selected.iter().enumerate() {
+        if index != 0 {
+            phrase.push(' ');
+        }
+        phrase.push_str(INDEX.token_string(choice.id)?);
+    }
+    Ok(phrase)
 }
 
 fn discover_contained(
@@ -893,33 +971,33 @@ fn discover_contained(
             if start + alternatives.len() as u32 > text.token_count {
                 continue;
             }
-            let text_tokens = text.tokens().collect::<Result<Vec<_>, _>>()?;
-            let slice = &text_tokens[start as usize..start as usize + alternatives.len()];
-            if !slice
-                .iter()
-                .zip(&allowed)
-                .all(|(token, alternatives)| alternatives.contains(token))
-            {
+            let mut morphology_changes = 0_u16;
+            let mut added_characters = 0_u16;
+            let mut matches = true;
+            let mut compared_count = 0_usize;
+            let compared_tokens = text.tokens().skip(start as usize).take(alternatives.len());
+            for ((matched, allowed), choices) in compared_tokens.zip(&allowed).zip(alternatives) {
+                let matched = matched?;
+                compared_count += 1;
+                if !allowed.contains(&matched) {
+                    matches = false;
+                    break;
+                }
+                let choice = choices
+                    .iter()
+                    .find(|choice| choice.id == matched)
+                    .expect("allowed tokens and choices are built together");
+                morphology_changes += u16::from(choice.morphed);
+                added_characters = added_characters.saturating_add(choice.added_characters);
+            }
+            if !matches {
                 continue;
             }
-            let morphology_changes = slice
-                .iter()
-                .zip(alternatives)
-                .filter(|(matched, choices)| {
-                    choices
-                        .iter()
-                        .find(|choice| choice.id == **matched)
-                        .is_some_and(|choice| choice.morphed)
-                })
-                .count() as u16;
-            let added_characters = slice
-                .iter()
-                .zip(alternatives)
-                .filter_map(|(matched, choices)| {
-                    choices.iter().find(|choice| choice.id == *matched)
-                })
-                .map(|choice| choice.added_characters)
-                .sum();
+            if compared_count != alternatives.len() {
+                return Err(EnglishSearchError::InvalidIndex(
+                    "stored text ended before its declared token count".into(),
+                ));
+            }
             plans.insert(Plan {
                 kind: PlanKind::Contained,
                 text_key: Some(occurrence.text_key),
@@ -1023,8 +1101,79 @@ fn choose_concepts(groups: &[Group], candidates: &[Candidate]) -> Vec<usize> {
         .unwrap_or_default()
 }
 
-fn retrieve(candidate: &Candidate) -> Result<Vec<RankedHit>, EnglishSearchError> {
-    let mut best = BTreeMap::<u32, RankedHit>::new();
+struct RetainedHits {
+    best: IntegerMap<RankedHit>,
+    limit: usize,
+    batch_size: usize,
+    threshold: Option<Rank>,
+}
+
+impl RetainedHits {
+    fn new(limit: usize) -> Self {
+        let batch_size = limit
+            .saturating_mul(RETAINED_HIT_BATCH_MULTIPLIER)
+            .max(limit + 1);
+        let mut best = IntegerMap::default();
+        best.reserve(batch_size);
+        Self {
+            best,
+            limit,
+            batch_size,
+            threshold: None,
+        }
+    }
+
+    fn add(
+        &mut self,
+        runtime: RuntimeKey,
+        kind: EnglishMatchKind,
+        plan: &Plan,
+        stored: StoredEvidence,
+        surrounding: u32,
+    ) {
+        let rank = rank_for(runtime, kind, plan, stored, surrounding);
+        match self.best.entry(runtime.get()) {
+            Entry::Occupied(mut occupied) => {
+                if rank < occupied.get().rank {
+                    occupied.insert(ranked_hit(runtime, rank, kind, plan, stored, surrounding));
+                }
+                return;
+            }
+            Entry::Vacant(vacant) => {
+                if self.threshold.is_some_and(|threshold| rank >= threshold) {
+                    return;
+                }
+                vacant.insert(ranked_hit(runtime, rank, kind, plan, stored, surrounding));
+            }
+        }
+        if self.best.len() > self.batch_size {
+            self.prune();
+        }
+    }
+
+    fn prune(&mut self) {
+        if self.best.len() <= self.limit {
+            return;
+        }
+        let mut hits = self.best.drain().map(|(_, hit)| hit).collect::<Vec<_>>();
+        hits.select_nth_unstable_by(self.limit - 1, |left, right| left.rank.cmp(&right.rank));
+        hits.truncate(self.limit);
+        self.threshold = hits.iter().map(|hit| hit.rank).max();
+        self.best
+            .extend(hits.into_iter().map(|hit| (hit.runtime_key, hit)));
+    }
+
+    fn finish(mut self) -> Vec<RankedHit> {
+        self.prune();
+        let mut hits = self.best.into_values().collect::<Vec<_>>();
+        hits.sort_unstable_by_key(|hit| hit.rank);
+        hits
+    }
+}
+
+fn retrieve(candidate: &Candidate, limit: usize) -> Result<Vec<RankedHit>, EnglishSearchError> {
+    debug_assert!(limit > 0);
+    let mut best = RetainedHits::new(limit);
     for plan in &candidate.plans {
         if let Some(token_id) = plan.token_id {
             for hit in INDEX.token(token_id)?.direct_hits() {
@@ -1035,8 +1184,7 @@ fn retrieve(candidate: &Candidate) -> Result<Vec<RankedHit>, EnglishSearchError>
                     EnglishMatchKind::WholeText
                 };
                 let surrounding = hit.rank.text_token_count.saturating_sub(1);
-                add_ranked(
-                    &mut best,
+                best.add(
                     hit.runtime_key,
                     kind,
                     plan,
@@ -1063,8 +1211,7 @@ fn retrieve(candidate: &Candidate) -> Result<Vec<RankedHit>, EnglishSearchError>
             };
             for binding in text.bindings() {
                 let binding = binding?;
-                add_ranked(
-                    &mut best,
+                best.add(
                     binding.runtime_key,
                     kind,
                     plan,
@@ -1081,19 +1228,16 @@ fn retrieve(candidate: &Candidate) -> Result<Vec<RankedHit>, EnglishSearchError>
             }
         }
     }
-    let mut hits = best.into_values().collect::<Vec<_>>();
-    hits.sort_by(|left, right| left.rank.cmp(&right.rank));
-    Ok(hits)
+    Ok(best.finish())
 }
 
-fn add_ranked(
-    best: &mut BTreeMap<u32, RankedHit>,
+fn rank_for(
     runtime: RuntimeKey,
     kind: EnglishMatchKind,
     plan: &Plan,
     stored: StoredEvidence,
     surrounding: u32,
-) {
+) -> Rank {
     let aliases = plan.query_flags & alias_mask() != 0 || stored.derived;
     let morphology = plan.morphology_changes != 0;
     let transform_class = match (aliases, morphology) {
@@ -1107,7 +1251,7 @@ fn add_ranked(
         .transformation_count
         .saturating_add(plan.query_flags.count_ones() as u16)
         .saturating_add(plan.morphology_changes);
-    let rank = Rank(
+    Rank(
         u8::from(kind == EnglishMatchKind::ContainedText),
         u8::from(plan.completion),
         transform_class,
@@ -1116,7 +1260,17 @@ fn add_ranked(
         plan.added_characters,
         transform_count,
         runtime.get(),
-    );
+    )
+}
+
+fn ranked_hit(
+    runtime: RuntimeKey,
+    rank: Rank,
+    kind: EnglishMatchKind,
+    plan: &Plan,
+    stored: StoredEvidence,
+    surrounding: u32,
+) -> RankedHit {
     let evidence = EnglishMatchEvidence {
         kind,
         completion: plan.completion,
@@ -1129,18 +1283,11 @@ fn add_ranked(
         surrounding_tokens: surrounding,
         added_characters: plan.added_characters,
     };
-    let candidate = RankedHit {
+    RankedHit {
         runtime_key: runtime.get(),
         rank,
         evidence,
-    };
-    best.entry(runtime.get())
-        .and_modify(|old| {
-            if candidate.rank < old.rank {
-                *old = candidate.clone();
-            }
-        })
-        .or_insert(candidate);
+    }
 }
 
 fn alias_mask() -> u16 {
@@ -1205,46 +1352,167 @@ mod tests {
     }
 
     #[test]
-    fn zero_per_concept_limit_is_rejected_for_initial_searches_and_continuations() {
-        let options = EnglishSearchOptions {
-            per_concept_limit: 0,
-            ..EnglishSearchOptions::default()
-        };
-        assert!(matches!(
-            search_english("run", options),
-            Err(EnglishSearchError::InvalidPerConceptLimit)
-        ));
-
-        let cursor = EnglishCursor {
-            raw: "run".to_owned(),
-            options,
-            query_bytes: 0..3,
-            offset: 0,
-        };
-        assert!(matches!(
-            continue_english(&cursor),
-            Err(EnglishSearchError::InvalidPerConceptLimit)
-        ));
+    fn limits_outside_supported_range_are_rejected() {
+        for limit in [0, 201] {
+            let options = EnglishSearchOptions {
+                limit,
+                ..EnglishSearchOptions::default()
+            };
+            assert!(matches!(
+                search_english("run", options),
+                Err(EnglishSearchError::InvalidLimit)
+            ));
+        }
+        for per_concept_limit in [0, 201] {
+            let options = EnglishSearchOptions {
+                per_concept_limit,
+                ..EnglishSearchOptions::default()
+            };
+            assert!(matches!(
+                search_english("run", options),
+                Err(EnglishSearchError::InvalidPerConceptLimit)
+            ));
+        }
         assert_eq!(
             EnglishSearchError::InvalidPerConceptLimit.to_string(),
-            "English per-concept limit must be positive"
+            "English per-concept limit must be between 1 and 200"
         );
     }
 
     #[test]
-    fn global_limit_reports_unreturned_unique_entries() {
-        let options = EnglishSearchOptions {
-            completion: CompletionMode::Disabled,
-            limit: 1,
-            per_concept_limit: CANDIDATE_LIMIT,
-        };
-        let result = search_english("watermelon computer", options).unwrap();
+    fn defaults_and_boundary_limits_are_supported() {
+        assert_eq!(EnglishSearchOptions::default().limit, 50);
+        assert_eq!(EnglishSearchOptions::default().per_concept_limit, 20);
+        for limit in [1, 20, 50, 200] {
+            let result = search_english(
+                "run",
+                EnglishSearchOptions {
+                    limit,
+                    per_concept_limit: limit,
+                    ..EnglishSearchOptions::default()
+                },
+            )
+            .unwrap();
+            assert!(result.entries.len() <= limit);
+            assert!(result
+                .concepts
+                .iter()
+                .all(|concept| concept.hits.len() <= limit));
+        }
+    }
 
-        assert_eq!(result.entries.len(), 1);
+    #[test]
+    fn structured_hits_reference_returned_entries() {
+        let result = search_english(
+            "watermelon computer",
+            EnglishSearchOptions {
+                completion: CompletionMode::Disabled,
+                limit: 3,
+                per_concept_limit: 20,
+            },
+        )
+        .unwrap();
+        assert_eq!(result.entries.len(), 3);
         assert!(result
             .concepts
             .iter()
-            .all(|concept| concept.next_cursor.is_none()));
-        assert!(result.has_more);
+            .flat_map(|concept| &concept.hits)
+            .all(|hit| hit.entry_index < result.entries.len()));
+    }
+
+    #[test]
+    fn bounded_retention_matches_exhaustive_sorting() {
+        let discovery = discover("run", CompletionMode::Disabled).unwrap();
+        let selected = choose_concepts(&discovery.groups, &discovery.candidates);
+        let candidate = &discovery.candidates[selected[0]];
+        let expected = retrieve(candidate, MAXIMUM_RESULT_LIMIT).unwrap();
+        for limit in [1, 20, 50] {
+            let actual = retrieve(candidate, limit).unwrap();
+            assert_eq!(
+                actual.iter().map(|hit| hit.rank).collect::<Vec<_>>(),
+                expected
+                    .iter()
+                    .take(limit)
+                    .map(|hit| hit.rank)
+                    .collect::<Vec<_>>()
+            );
+        }
+    }
+
+    #[test]
+    fn bounded_retention_matches_adversarial_exhaustive_reference() {
+        let plan = Plan {
+            kind: PlanKind::Whole,
+            text_key: None,
+            token_id: Some(TokenId::new(0)),
+            start_in_text: 0,
+            matched_tokens: 1,
+            query_flags: 0,
+            morphology_changes: 0,
+            completion: false,
+            added_characters: 0,
+        };
+        let stored = |derivations| StoredEvidence {
+            derivations,
+            derived: false,
+            parenthetical_omission: false,
+            transformation_count: 0,
+        };
+        let mut inputs = (10_u32..=25)
+            .map(|key| (key, key, stored(Some(1))))
+            .collect::<Vec<_>>();
+        // These arrive after the first pruning batch. One improves an evicted
+        // key enough to re-enter; one improves a retained key.
+        inputs.push((25, 0, stored(Some(2))));
+        inputs.push((10, 1, stored(Some(2))));
+        // Equal rank must preserve the first evidence deterministically.
+        inputs.push((25, 0, stored(Some(4))));
+
+        let mut retained = RetainedHits::new(3);
+        let mut exhaustive = IntegerMap::<RankedHit>::default();
+        for &(key, surrounding, evidence) in &inputs {
+            let runtime = RuntimeKey::new(key);
+            retained.add(
+                runtime,
+                EnglishMatchKind::WholeText,
+                &plan,
+                evidence,
+                surrounding,
+            );
+            let rank = rank_for(
+                runtime,
+                EnglishMatchKind::WholeText,
+                &plan,
+                evidence,
+                surrounding,
+            );
+            let candidate = ranked_hit(
+                runtime,
+                rank,
+                EnglishMatchKind::WholeText,
+                &plan,
+                evidence,
+                surrounding,
+            );
+            exhaustive
+                .entry(key)
+                .and_modify(|old| {
+                    if rank < old.rank {
+                        *old = candidate.clone();
+                    }
+                })
+                .or_insert(candidate);
+        }
+        let mut expected = exhaustive.into_values().collect::<Vec<_>>();
+        expected.sort_unstable_by_key(|hit| hit.rank);
+        expected.truncate(3);
+        let actual = retained.finish();
+
+        assert_eq!(
+            actual.iter().map(|hit| hit.rank).collect::<Vec<_>>(),
+            expected.iter().map(|hit| hit.rank).collect::<Vec<_>>()
+        );
+        assert_eq!(actual[0].runtime_key, 25);
+        assert_eq!(actual[0].evidence.stored_derivations, Some(2));
     }
 }

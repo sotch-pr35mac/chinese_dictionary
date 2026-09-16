@@ -1,0 +1,100 @@
+{
+  "schema_version": 4,
+  "report": {
+    "sources": {
+      "cc-cedict": {
+        "input_records": 125058,
+        "admitted_records": 124876,
+        "suppressed_records": 0,
+        "rejected_records": 182,
+        "emitted_definitions": 197298,
+        "excluded_quotations": 0,
+        "excluded_unknown_examples": 0,
+        "diagnostics": {
+          "empty-definition-after-annotations at line 70775": 1,
+          "invalid-primary-pinyin": 177,
+          "malformed-alternative-pinyin: wa1sei1": 1,
+          "malformed-alternative-pinyin: yai2": 1,
+          "malformed-pronunciation-annotation at line 58992": 1,
+          "malformed-pronunciation-annotation at line 74134": 1
+        }
+      },
+      "chinese-notes": {
+        "input_records": 168813,
+        "admitted_records": 161217,
+        "suppressed_records": 0,
+        "rejected_records": 7596,
+        "emitted_definitions": 129959,
+        "excluded_quotations": 0,
+        "excluded_unknown_examples": 0,
+        "diagnostics": {
+          "invalid-or-ambiguous-marked-pinyin": 2251,
+          "missing-english-gloss": 5345
+        }
+      },
+      "wiktionary": {
+        "input_records": 406118,
+        "admitted_records": 76170,
+        "suppressed_records": 0,
+        "rejected_records": 329948,
+        "emitted_definitions": 82064,
+        "excluded_quotations": 10608,
+        "excluded_unknown_examples": 145,
+        "diagnostics": {
+          "ambiguous-incomplete-record": 46,
+          "ambiguous-mandarin-pinyin-scope": 11607,
+          "ambiguous-script-forms": 6703,
+          "excluded-non-mandarin-sense": 2737,
+          "missing-explicit-mandarin-pinyin": 72237,
+          "no-publishable-mandarin-definitions": 1293,
+          "non-lexical-pos": 108917,
+          "redirect": 124471,
+          "sense-without-gloss": 64,
+          "unassignable-incomplete-record": 4674,
+          "unmapped-topic": 23189
+        }
+      }
+    },
+    "lexical_units": 205493,
+    "definitions": 409321,
+    "suppressed_stale_chinese_notes_glosses": 0
+  },
+  "file_checksums": {
+    "LICENSE-DATA.txt": "3f0c22b4438c6918efb202fe82c1b51c4c8b19eb4004749659e02315d2ff98db",
+    "LICENSE-WORDNET.txt": "47bb35b06b51ec412353eb32f946f58002a2ff75b4ca56f733c33019155ebb8b",
+    "NOTICE.md": "4094509336b46a360dd7f87290aa3f2063ef4c9b472590817fb8d4b549a449f8",
+    "dictionary.rkyv.zst": "450a2d474a37e9969ccb5dadaa2551e9c72585c699bc1c26962813a3815c882c",
+    "english.search.zst": "4260473d946404171c5ec9acaa81348b682d73e7ea7538c53ecf03bc00d00a0f",
+    "wiktionary-attribution.json": "64e645c5b6dbdaa3d72bca25fd2ffe8498511022c2fa967d5c7dc50e80b4e53f"
+  },
+  "english_search": {
+    "compressed_bytes": 22055271,
+    "uncompressed_bytes": 56222698,
+    "compressed_sha256": "4260473d946404171c5ec9acaa81348b682d73e7ea7538c53ecf03bc00d00a0f",
+    "uncompressed_sha256": "acf3420bb43bdaa147cc3d99c28cdbcc2f985dc7c3166bdeed02ca68691f4381",
+    "tokens": 123912,
+    "texts": 664011,
+    "bindings": 987173,
+    "occurrences": 3860398,
+    "direct_hits": 1393563,
+    "morphology_families": 31793,
+    "morphology_surfaces": 67139,
+    "maximum_text_tokens": 93,
+    "maximum_phrase_bytes": 666,
+    "section_raw_bytes": {
+      "Metadata": 242,
+      "MorphologyAnalyses": 256926,
+      "MorphologyFst": 242371,
+      "MorphologyTokens": 433968,
+      "PhraseFst": 13132360,
+      "TextBindings": 3697376,
+      "TextMeta": 6879741,
+      "TextTokens": 11010091,
+      "TokenFst": 929827,
+      "TokenHits": 4927988,
+      "TokenMeta": 1795116,
+      "TokenOccurrences": 11729031,
+      "TokenStrings": 1187166
+    }
+  }
+}

@@ -1,32 +1,28 @@
-use bincode::Options;
-use fst::{IntoStreamer, Set, Streamer};
+use fst::{IntoStreamer, Map, Streamer};
+use rkyv::util::AlignedVec;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::env;
 use std::fs;
 use std::io::Read;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
+#[allow(dead_code)]
+#[path = "src/dictionary_archive.rs"]
+mod dictionary_archive;
 #[path = "src/english_search_format.rs"]
 mod english_search_format;
 #[allow(dead_code)]
 #[path = "src/model.rs"]
 mod model;
 
+use dictionary_archive::{ArchivedDictionaryArchive, ArchivedPostingRange, ARCHIVE_CONTRACT};
 use english_search_format::{EnglishSearchIndex, TextKey, TokenId};
-use model::{BinaryEnvelope, LexicalId, LexicalUnit, SCHEMA_VERSION};
-
-type Data = BTreeMap<u32, LexicalUnit>;
-type SearchIndex = BTreeMap<String, Vec<u32>>;
-type IdentityIndex = BTreeMap<LexicalId, u32>;
+use model::{IDENTITY_VERSION, SCHEMA_VERSION};
 
 const ARCHIVES: &[(&str, &str)] = &[
-    ("data.dictionary.zst", "data.dictionary"),
-    ("simplified.dictionary.zst", "simplified.dictionary"),
-    ("traditional.dictionary.zst", "traditional.dictionary"),
-    ("pinyin.dictionary.zst", "pinyin.dictionary"),
-    ("identity.dictionary.zst", "identity.dictionary"),
+    ("dictionary.rkyv.zst", "dictionary.rkyv"),
     ("english.search.zst", "english.search"),
 ];
 const MEBIBYTE: u64 = 1024 * 1024;
@@ -34,6 +30,7 @@ const MEBIBYTE: u64 = 1024 * 1024;
 #[derive(Deserialize)]
 struct Manifest {
     schema_version: u32,
+    archive_contract: String,
     file_checksums: BTreeMap<String, String>,
     english_search: EnglishMetadata,
 }
@@ -48,7 +45,7 @@ struct EnglishMetadata {
 
 fn main() {
     if let Err(error) = run() {
-        panic!("schema-5 dictionary bundle validation failed: {error}");
+        panic!("schema-4 dictionary bundle validation failed: {error}");
     }
 }
 
@@ -59,6 +56,9 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let manifest: Manifest = serde_json::from_slice(&fs::read(&manifest_path)?)?;
     if manifest.schema_version != SCHEMA_VERSION {
         return Err(format!("unsupported bundle schema {}", manifest.schema_version).into());
+    }
+    if manifest.archive_contract.as_bytes() != ARCHIVE_CONTRACT {
+        return Err("dictionary archive contract mismatch".into());
     }
 
     for (name, expected) in &manifest.file_checksums {
@@ -75,10 +75,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     for &(archive, output) in ARCHIVES {
         let compressed = fs::read(data_dir.join(archive))?;
         let maximum = match archive {
-            "data.dictionary.zst" => 128 * MEBIBYTE,
-            "identity.dictionary.zst" => 24 * MEBIBYTE,
-            "pinyin.dictionary.zst" => 24 * MEBIBYTE,
-            "simplified.dictionary.zst" | "traditional.dictionary.zst" => 8 * MEBIBYTE,
+            "dictionary.rkyv.zst" => 256 * MEBIBYTE,
             "english.search.zst" => manifest.english_search.uncompressed_bytes,
             _ => return Err(format!("no decompression limit for {archive}").into()),
         };
@@ -90,39 +87,11 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         fs::write(&temporary, raw)?;
         fs::rename(temporary, output_dir.join(output))?;
     }
-    fs::copy(data_dir.join("chinese.fst"), output_dir.join("chinese.fst"))?;
-
-    let data: Data = decode_envelope(&output_dir.join("data.dictionary"))?;
-    if data.keys().copied().ne(0..u32::try_from(data.len())?) {
-        return Err("runtime keys are not contiguous".into());
-    }
-    let unit_count = u32::try_from(data.len())?;
-    for name in ["simplified", "traditional", "pinyin"] {
-        let index: SearchIndex = decode_envelope(&output_dir.join(format!("{name}.dictionary")))?;
-        validate_index(name, &index, unit_count)?;
-    }
-    let identities: IdentityIndex = decode_envelope(&output_dir.join("identity.dictionary"))?;
-    if identities.len() != data.len() {
-        return Err("identity index length mismatch".into());
-    }
-    for (identity, &runtime_key) in &identities {
-        if data.get(&runtime_key).map(|unit| &unit.id) != Some(identity) {
-            return Err("identity index points to the wrong lexical unit".into());
-        }
-    }
-    for unit in data.values() {
-        for classifier in unit.measure_words.iter().chain(
-            unit.english
-                .iter()
-                .flat_map(|definition| &definition.measure_words),
-        ) {
-            if !identities.contains_key(&classifier.value) {
-                return Err(format!("unresolved classifier identity {}", classifier.value).into());
-            }
-        }
-    }
-    let chinese = fs::read(output_dir.join("chinese.fst"))?;
-    Set::new(chinese)?;
+    let dictionary_bytes = fs::read(output_dir.join("dictionary.rkyv"))?;
+    let mut aligned = AlignedVec::<16>::with_capacity(dictionary_bytes.len());
+    aligned.extend_from_slice(&dictionary_bytes);
+    let dictionary = rkyv::access::<ArchivedDictionaryArchive, rkyv::rancor::Error>(&aligned)?;
+    let unit_count = validate_dictionary_archive(dictionary)?;
     let english = fs::read(output_dir.join("english.search"))?;
     let parsed = EnglishSearchIndex::parse(&english)?;
     if parsed.lexical_unit_count() != unit_count {
@@ -145,6 +114,132 @@ fn decompress_bounded(
         return Err(format!("{name} exceeds its {maximum}-byte decompression limit").into());
     }
     Ok(raw)
+}
+
+fn validate_dictionary_archive(
+    dictionary: &ArchivedDictionaryArchive,
+) -> Result<u32, Box<dyn std::error::Error>> {
+    if dictionary.archive_contract != *ARCHIVE_CONTRACT
+        || dictionary.schema_version.to_native() != SCHEMA_VERSION
+        || dictionary.identity_version != IDENTITY_VERSION
+    {
+        return Err("dictionary archive metadata mismatch".into());
+    }
+    let unit_count = u32::try_from(dictionary.lexical_units.len())?;
+    if dictionary.identities.len() != dictionary.lexical_units.len() {
+        return Err("identity index length mismatch".into());
+    }
+    for (runtime_key, unit) in dictionary.lexical_units.iter().enumerate() {
+        let indexed_key = dictionary
+            .identities
+            .get(&unit.id.0)
+            .ok_or("lexical identity is absent from the identity map")?
+            .to_native();
+        if indexed_key != u32::try_from(runtime_key)? {
+            return Err("identity index points to the wrong lexical unit".into());
+        }
+        for classifier in unit.measure_words.iter().chain(
+            unit.english
+                .iter()
+                .flat_map(|definition| definition.measure_words.iter()),
+        ) {
+            if !dictionary.identities.contains_key(&classifier.value.0) {
+                return Err("unresolved classifier identity".into());
+            }
+        }
+    }
+
+    let chinese_fst = Map::new(dictionary.chinese_fst.as_slice())?;
+    validate_fst_ordinals(&chinese_fst, dictionary.chinese_postings.len(), "Chinese")?;
+    for postings in dictionary.chinese_postings.iter() {
+        if postings.simplified.len.to_native() == 0 && postings.traditional.len.to_native() == 0 {
+            return Err("Chinese term has no postings".into());
+        }
+        validate_posting_range(
+            &postings.simplified,
+            dictionary.chinese_runtime_keys.as_slice(),
+            unit_count,
+            "simplified",
+            true,
+        )?;
+        validate_posting_range(
+            &postings.traditional,
+            dictionary.chinese_runtime_keys.as_slice(),
+            unit_count,
+            "traditional",
+            true,
+        )?;
+    }
+
+    let pinyin_fst = Map::new(dictionary.pinyin_fst.as_slice())?;
+    validate_fst_ordinals(&pinyin_fst, dictionary.pinyin_postings.len(), "Pinyin")?;
+    for range in dictionary.pinyin_postings.iter() {
+        validate_posting_range(
+            range,
+            dictionary.pinyin_runtime_keys.as_slice(),
+            unit_count,
+            "Pinyin",
+            false,
+        )?;
+    }
+    Ok(unit_count)
+}
+
+fn validate_fst_ordinals<D: AsRef<[u8]>>(
+    fst: &Map<D>,
+    posting_count: usize,
+    name: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    if fst.len() != posting_count {
+        return Err(format!("{name} FST/postings length mismatch").into());
+    }
+    let mut seen = vec![false; posting_count];
+    let mut stream = fst.stream();
+    while let Some((key, ordinal)) = stream.next() {
+        if key.is_empty() {
+            return Err(format!("empty {name} FST key").into());
+        }
+        let slot = seen
+            .get_mut(usize::try_from(ordinal)?)
+            .ok_or_else(|| format!("{name} FST ordinal is out of range"))?;
+        if std::mem::replace(slot, true) {
+            return Err(format!("duplicate {name} FST ordinal").into());
+        }
+    }
+    if seen.iter().any(|value| !value) {
+        return Err(format!("missing {name} FST ordinal").into());
+    }
+    Ok(())
+}
+
+fn validate_posting_range(
+    range: &ArchivedPostingRange,
+    runtime_keys: &[rkyv::Archived<u32>],
+    unit_count: u32,
+    name: &str,
+    allow_empty: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let start = usize::try_from(range.start.to_native())?;
+    let len = usize::try_from(range.len.to_native())?;
+    let end = start.checked_add(len).ok_or("posting range overflow")?;
+    let postings = runtime_keys
+        .get(start..end)
+        .ok_or_else(|| format!("{name} posting range is out of bounds"))?;
+    if postings.is_empty() && !allow_empty {
+        return Err(format!("empty {name} posting range").into());
+    }
+    let mut previous = None;
+    for runtime_key in postings {
+        let runtime_key = runtime_key.to_native();
+        if runtime_key >= unit_count {
+            return Err(format!("out-of-range {name} runtime key").into());
+        }
+        if previous.is_some_and(|value| value >= runtime_key) {
+            return Err(format!("unsorted {name} postings").into());
+        }
+        previous = Some(runtime_key);
+    }
+    Ok(())
 }
 
 fn validate_english_index(
@@ -225,43 +320,6 @@ fn validate_english_index(
             if family?.get() >= metadata.morphology_family_count {
                 return Err("English morphology analysis is out of range".into());
             }
-        }
-    }
-    Ok(())
-}
-
-fn bincode_options() -> impl Options {
-    bincode::DefaultOptions::new()
-        .with_fixint_encoding()
-        .with_little_endian()
-        .reject_trailing_bytes()
-}
-
-fn decode_envelope<T: serde::de::DeserializeOwned>(
-    path: &Path,
-) -> Result<T, Box<dyn std::error::Error>> {
-    let bytes = fs::read(path)?;
-    let envelope: BinaryEnvelope<T> = bincode_options().deserialize(&bytes)?;
-    if envelope.schema_version != SCHEMA_VERSION {
-        return Err("dictionary envelope schema mismatch".into());
-    }
-    Ok(envelope.payload)
-}
-
-fn validate_index(
-    name: &str,
-    index: &SearchIndex,
-    unit_count: u32,
-) -> Result<(), Box<dyn std::error::Error>> {
-    for (key, ids) in index {
-        if key.is_empty() || ids.is_empty() {
-            return Err(format!("empty {name} index record").into());
-        }
-        if ids.iter().any(|id| *id >= unit_count) {
-            return Err(format!("out-of-range {name} reference").into());
-        }
-        if ids.windows(2).any(|pair| pair[0] >= pair[1]) {
-            return Err(format!("unsorted {name} postings").into());
         }
     }
     Ok(())

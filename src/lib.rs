@@ -14,10 +14,10 @@
 //!
 //! use chinese_dictionary::query;
 //!
-//! // Querying the dictionary returns canonical `LexicalUnit` values.
+//! // Querying the dictionary returns zero-copy `LexicalUnitRef` views.
 //! let text = "to run";
 //! let results = query(text).unwrap();
-//! assert!(results.iter().any(|entry| entry.simplified == "执行"));
+//! assert!(results.iter().any(|entry| entry.simplified() == "执行"));
 //! ```
 //!
 //! Classifying a string of text
@@ -49,9 +49,11 @@
 //! assert_eq!(vec!["今天", "天气", "不错"], tokenize("今天天气不错"));
 //! ```
 //!
-//! #### `LexicalUnit`
-//! Each result contains stable identity, headwords, structured Pinyin, HSK data,
-//! sourced English definitions, classifiers, and pronunciation variants.
+//! #### `LexicalUnitRef`
+//! Each result borrows stable identity, headwords, structured Pinyin, HSK data,
+//! sourced English definitions, classifiers, and pronunciation variants directly
+//! from the embedded archive. Use `to_owned()` only when an owned `LexicalUnit`
+//! is needed.
 //!
 //! #### `ClassificationResult` enum
 //! The possible values for the `ClassificationResult` enum are:
@@ -60,12 +62,12 @@
 //! - `ZH`: Represents Chinese
 //! - `UN`: Represents an uncertain classification result
 
-extern crate bincode;
 extern crate character_converter;
 extern crate chinese_detection;
 extern crate once_cell;
 
 mod chinese_dictionary;
+mod dictionary_archive;
 mod english;
 mod english_search_format;
 mod model;
@@ -75,13 +77,16 @@ pub use self::chinese_dictionary::{
     simplified_to_traditional, tokenize, traditional_to_simplified, ClassificationResult,
 };
 pub use self::english::{
-    continue_english, search_english, CompletionMode, EnglishConcept, EnglishCursor, EnglishHit,
-    EnglishMatchEvidence, EnglishMatchKind, EnglishPage, EnglishSearchError, EnglishSearchOptions,
-    EnglishSearchResult,
+    search_english, CompletionMode, EnglishConcept, EnglishHit, EnglishMatchEvidence,
+    EnglishMatchKind, EnglishSearchError, EnglishSearchOptions, EnglishSearchResult,
 };
 pub use self::model::{
-    AlternativePronunciation, Definition, Example, HskLevel, HskLevels, LexicalId, LexicalKind,
-    LexicalUnit, ModelError, PartOfSpeech, Pinyin, Qualifier, QualifierCategory, Source, Sourced,
+    AlternativePronunciation, AlternativePronunciationRef, Definition, DefinitionRef, Example,
+    ExampleRef, HskLevel, HskLevels, HskLevelsRef, LexicalId, LexicalKind, LexicalUnit,
+    LexicalUnitRef, ModelError, PartOfSpeech, Pinyin, PinyinRef, Qualifier, QualifierCategory,
+    QualifierRef, Source, Sourced, SourcedAlternativePronunciationRef, SourcedExampleRef,
+    SourcedLexicalIdRef, SourcedLexicalKindRef, SourcedPartOfSpeechRef, SourcedQualifierRef,
+    SourcedStringRef,
 };
 
 #[cfg(test)]
@@ -89,8 +94,8 @@ mod tests {
     use super::*;
     use std::collections::HashSet;
 
-    fn word_ids(entries: Vec<&LexicalUnit>) -> Vec<LexicalId> {
-        entries.into_iter().map(|entry| entry.id.clone()).collect()
+    fn word_ids(entries: Vec<LexicalUnitRef<'static>>) -> Vec<LexicalId> {
+        entries.into_iter().map(LexicalUnitRef::id).collect()
     }
 
     fn query_word_ids(raw: &str) -> Option<Vec<LexicalId>> {
@@ -103,17 +108,19 @@ mod tests {
         query_by_simplified(headword)
             .into_iter()
             .chain(query_by_traditional(headword))
-            .filter(|entry| seen.insert(entry.id.clone()))
-            .map(|entry| entry.id.clone())
+            .filter(|entry| seen.insert(entry.id()))
+            .map(LexicalUnitRef::id)
             .collect()
     }
 
-    fn assert_contains_all(actual: Vec<&LexicalUnit>, expected: Vec<&LexicalUnit>) {
-        let actual_ids: HashSet<LexicalId> =
-            actual.into_iter().map(|entry| entry.id.clone()).collect();
+    fn assert_contains_all(
+        actual: Vec<LexicalUnitRef<'static>>,
+        expected: Vec<LexicalUnitRef<'static>>,
+    ) {
+        let actual_ids: HashSet<LexicalId> = actual.into_iter().map(LexicalUnitRef::id).collect();
 
         for entry in expected {
-            assert!(actual_ids.contains(&entry.id));
+            assert!(actual_ids.contains(&entry.id()));
         }
     }
 
@@ -121,7 +128,7 @@ mod tests {
     fn test_search_by_english_1() {
         let text = "watermelon";
         let result = query(text);
-        let actual = &result.unwrap().first().unwrap().traditional;
+        let actual = result.unwrap().first().unwrap().traditional();
         let expected = "西瓜";
         assert_eq!(expected, actual);
     }
@@ -129,7 +136,7 @@ mod tests {
     #[test]
     fn test_search_by_english_2() {
         let result = query("to run").unwrap();
-        assert!(result.iter().any(|entry| entry.traditional == "執行"));
+        assert!(result.iter().any(|entry| entry.traditional() == "執行"));
     }
 
     #[test]
@@ -147,15 +154,15 @@ mod tests {
     fn test_search_by_traditional() {
         let text = "繁體字";
         let result = query(text);
-        let actual = &result
+        let actual = result
             .unwrap()
             .first()
             .unwrap()
-            .english
-            .first()
+            .english()
+            .next()
             .unwrap()
-            .gloss
-            .value;
+            .gloss()
+            .value();
         let expected = "traditional Chinese character";
         assert_eq!(expected, actual);
     }
@@ -164,15 +171,15 @@ mod tests {
     fn test_search_by_simplified() {
         let text = "龙纹";
         let result = query(text);
-        let actual = &result
+        let actual = result
             .unwrap()
             .first()
             .unwrap()
-            .english
-            .first()
+            .english()
+            .next()
             .unwrap()
-            .gloss
-            .value;
+            .gloss()
+            .value();
         let expected = "dragon (as a decorative design)";
         assert_eq!(expected, actual);
     }
@@ -181,7 +188,14 @@ mod tests {
     fn test_search_by_simplified_exact() {
         let text = "龙纹";
         let result = query_by_simplified(text);
-        let actual = &result.first().unwrap().english.first().unwrap().gloss.value;
+        let actual = result
+            .first()
+            .unwrap()
+            .english()
+            .next()
+            .unwrap()
+            .gloss()
+            .value();
         let expected = "dragon (as a decorative design)";
         assert_eq!(expected, actual);
     }
@@ -190,7 +204,14 @@ mod tests {
     fn test_search_by_traditional_exact() {
         let text = "繁體字";
         let result = query_by_traditional(text);
-        let actual = &result.first().unwrap().english.first().unwrap().gloss.value;
+        let actual = result
+            .first()
+            .unwrap()
+            .english()
+            .next()
+            .unwrap()
+            .gloss()
+            .value();
         let expected = "traditional Chinese character";
         assert_eq!(expected, actual);
     }
@@ -199,7 +220,7 @@ mod tests {
     fn test_search_sentence() {
         let text = "你好今天的天气还好。";
         let result = query(text);
-        let actual = &result.unwrap().first().unwrap().simplified;
+        let actual = result.unwrap().first().unwrap().simplified();
         let expected = "你好";
         assert_eq!(expected, actual);
     }
@@ -208,7 +229,7 @@ mod tests {
     fn test_search_by_pinyin_1() {
         let text = "hánlěng";
         let result = query(text);
-        let actual = &result.unwrap().first().unwrap().traditional;
+        let actual = result.unwrap().first().unwrap().traditional();
         let expected = "寒冷";
         assert_eq!(expected, actual);
     }
@@ -217,7 +238,7 @@ mod tests {
     fn test_search_by_pinyin_2() {
         let text = "dian4nao3";
         let result = query(text);
-        let actual = &result.unwrap().first().unwrap().traditional;
+        let actual = result.unwrap().first().unwrap().traditional();
         let expected = "電腦";
         assert_eq!(expected, actual);
     }
@@ -226,7 +247,7 @@ mod tests {
     fn test_search_by_pinyin_3() {
         let text = "nihao";
         let result = query(text);
-        let actual = &result.unwrap().first().unwrap().traditional;
+        let actual = result.unwrap().first().unwrap().traditional();
         let expected = "你好";
         assert_eq!(expected, actual);
     }
@@ -417,7 +438,7 @@ mod tests {
         assert!(query("Xi'an")
             .unwrap()
             .iter()
-            .any(|entry| entry.simplified == "西安"));
+            .any(|entry| entry.simplified() == "西安"));
     }
 
     #[test]
@@ -582,7 +603,7 @@ mod tests {
         let sets = ["run", "runs", "running", "ran"].map(|query| {
             query_by_english(query)
                 .into_iter()
-                .map(|entry| entry.id.clone())
+                .map(LexicalUnitRef::id)
                 .collect::<HashSet<_>>()
         });
         let shared = sets[0]
@@ -628,37 +649,21 @@ mod tests {
     #[test]
     fn spelling_aliases_preserve_digits() {
         let results = query_by_english("3d");
-        assert!(results.iter().any(|entry| entry
-            .english
+        assert!(results
             .iter()
-            .any(|definition| { definition.gloss.value.to_lowercase().contains("3d") })));
-    }
-
-    #[test]
-    fn continuation_advances_within_one_concept() {
-        let options = EnglishSearchOptions {
-            per_concept_limit: 2,
-            ..EnglishSearchOptions::default()
-        };
-        let first = search_english("run", options).unwrap();
-        let cursor = first.concepts[0].next_cursor.as_ref().unwrap();
-        let second = continue_english(cursor).unwrap();
-        let first_ids = first.concepts[0]
-            .hits
-            .iter()
-            .map(|hit| hit.runtime_key)
-            .collect::<HashSet<_>>();
-        assert!(second
-            .hits
-            .iter()
-            .all(|hit| !first_ids.contains(&hit.runtime_key)));
+            .any(|entry| entry.english().any(|definition| definition
+                .gloss()
+                .value()
+                .to_lowercase()
+                .contains("3d"))));
     }
 
     #[test]
     fn persistent_identity_round_trips() {
         let entry = query_by_simplified("西瓜").into_iter().next().unwrap();
-        assert_eq!(Some(entry), query_by_id(&entry.id));
-        assert_eq!(Some(entry), query_by_id_str(entry.id.as_str()));
+        let id = entry.id();
+        assert_eq!(Some(entry), query_by_id(&id));
+        assert_eq!(Some(entry), query_by_id_str(&id.to_string()));
     }
 
     #[test]
@@ -715,8 +720,8 @@ mod tests {
         let results = query(text).unwrap();
         let mut seen = Vec::new();
         for entry in results {
-            assert!(!seen.contains(&entry.id));
-            seen.push(entry.id.clone());
+            assert!(!seen.contains(&entry.id()));
+            seen.push(entry.id());
         }
     }
 
@@ -727,9 +732,18 @@ mod tests {
             .next()
             .expect("generated data should contain 出租车");
 
-        assert_eq!(entry.hsk.hsk_2015, vec![HskLevel::One]);
-        assert_eq!(entry.hsk.proficiency_standard_2021, vec![HskLevel::Two]);
-        assert_eq!(entry.hsk.hsk_exam_syllabus_2025, vec![HskLevel::One]);
+        assert_eq!(
+            entry.hsk().hsk_2015().collect::<Vec<_>>(),
+            vec![HskLevel::One]
+        );
+        assert_eq!(
+            entry.hsk().proficiency_standard_2021().collect::<Vec<_>>(),
+            vec![HskLevel::Two]
+        );
+        assert_eq!(
+            entry.hsk().hsk_exam_syllabus_2025().collect::<Vec<_>>(),
+            vec![HskLevel::One]
+        );
     }
 
     #[test]
@@ -737,30 +751,32 @@ mod tests {
         let entries = query_by_simplified("长");
         let zhang = entries
             .iter()
-            .find(|entry| entry.pinyin.numbers == "zhang3")
+            .find(|entry| entry.pinyin().numbers() == "zhang3")
             .expect("generated data should contain 长 with zhang3");
         let chang = entries
             .iter()
-            .find(|entry| entry.pinyin.numbers == "chang2")
+            .find(|entry| entry.pinyin().numbers() == "chang2")
             .expect("generated data should contain 长 with chang2");
 
         assert_eq!(
-            zhang.hsk.proficiency_standard_2021,
+            zhang.hsk().proficiency_standard_2021().collect::<Vec<_>>(),
             vec![HskLevel::Two, HskLevel::Six]
         );
-        assert_eq!(chang.hsk.proficiency_standard_2021, vec![HskLevel::Two]);
+        assert_eq!(
+            chang.hsk().proficiency_standard_2021().collect::<Vec<_>>(),
+            vec![HskLevel::Two]
+        );
     }
 
     #[test]
-    fn round_trips_the_shared_advanced_hsk_band() {
+    fn serializes_the_shared_advanced_hsk_band() {
         let levels = HskLevels {
             hsk_exam_syllabus_2025: vec![HskLevel::SevenToNine],
             ..HskLevels::default()
         };
 
-        let encoded = bincode::serialize(&levels).unwrap();
-        let decoded: HskLevels = bincode::deserialize(&encoded).unwrap();
-
+        let encoded = serde_json::to_string(&levels).unwrap();
+        let decoded: HskLevels = serde_json::from_str(&encoded).unwrap();
         assert_eq!(decoded, levels);
     }
 }

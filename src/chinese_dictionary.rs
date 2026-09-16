@@ -1,57 +1,38 @@
+use crate::dictionary_archive::{ArchivedDictionaryArchive, ArchivedPostingRange};
 use crate::english::{init_english, search_english, EnglishSearchOptions};
-use crate::model::{BinaryEnvelope, LexicalId, LexicalUnit, SCHEMA_VERSION};
-use bincode::Options;
+use crate::model::{LexicalId, LexicalUnitRef};
 pub use character_converter::{
     is_simplified, is_traditional, simplified_to_traditional, traditional_to_simplified,
 };
 pub use chinese_detection::ClassificationResult;
 use fst::raw::Fst;
-use fst::Set;
+use fst::Map;
 use once_cell::sync::Lazy;
-use serde::de::DeserializeOwned;
-use std::collections::BTreeMap;
+use std::borrow::Cow;
 
-type Searchable = BTreeMap<String, Vec<u32>>;
+const ARCHIVE_LEN: usize = include_bytes!(concat!(env!("OUT_DIR"), "/dictionary.rkyv")).len();
 
-static TRADITIONAL: Lazy<Searchable> = Lazy::new(|| {
-    decode_dictionary(include_bytes!(concat!(
-        env!("OUT_DIR"),
-        "/traditional.dictionary"
-    )))
-});
-static SIMPLIFIED: Lazy<Searchable> = Lazy::new(|| {
-    decode_dictionary(include_bytes!(concat!(
-        env!("OUT_DIR"),
-        "/simplified.dictionary"
-    )))
-});
-static PINYIN: Lazy<Searchable> = Lazy::new(|| {
-    decode_dictionary(include_bytes!(concat!(
-        env!("OUT_DIR"),
-        "/pinyin.dictionary"
-    )))
-});
-static DATA: Lazy<BTreeMap<u32, LexicalUnit>> =
-    Lazy::new(|| decode_dictionary(include_bytes!(concat!(env!("OUT_DIR"), "/data.dictionary"))));
-static IDENTITIES: Lazy<BTreeMap<LexicalId, u32>> = Lazy::new(|| {
-    decode_dictionary(include_bytes!(concat!(
-        env!("OUT_DIR"),
-        "/identity.dictionary"
-    )))
-});
-static CHINESE_FST: Lazy<Set<&'static [u8]>> =
-    Lazy::new(|| Set::new(&include_bytes!(concat!(env!("OUT_DIR"), "/chinese.fst"))[..]).unwrap());
+#[repr(C, align(16))]
+struct AlignedArchive([u8; ARCHIVE_LEN]);
 
-fn decode_dictionary<T: DeserializeOwned>(bytes: &[u8]) -> T {
-    let envelope: BinaryEnvelope<T> = bincode::DefaultOptions::new()
-        .with_fixint_encoding()
-        .with_little_endian()
-        .reject_trailing_bytes()
-        .deserialize(bytes)
-        .expect("build.rs validated the dictionary envelope");
-    assert_eq!(SCHEMA_VERSION, envelope.schema_version);
-    envelope.payload
+static ARCHIVE_BYTES: AlignedArchive = AlignedArchive(*include_bytes!(concat!(
+    env!("OUT_DIR"),
+    "/dictionary.rkyv"
+)));
+
+/// Accesses the immutable archive that build.rs validated before compilation.
+fn archive() -> &'static ArchivedDictionaryArchive {
+    // SAFETY: the static wrapper supplies the configured alignment, and
+    // build.rs validates this exact immutable artifact against this type.
+    unsafe { rkyv::access_unchecked::<ArchivedDictionaryArchive>(&ARCHIVE_BYTES.0) }
 }
+
+static CHINESE_FST: Lazy<Map<&'static [u8]>> = Lazy::new(|| {
+    Map::new(archive().chinese_fst.as_slice()).expect("build.rs validated the Chinese FST")
+});
+static PINYIN_FST: Lazy<Map<&'static [u8]>> = Lazy::new(|| {
+    Map::new(archive().pinyin_fst.as_slice()).expect("build.rs validated the Pinyin FST")
+});
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum QueryNormalizationMode {
@@ -128,7 +109,34 @@ fn is_sentence_separator(
     )
 }
 
-fn normalize_query(raw: &str, mode: QueryNormalizationMode) -> String {
+fn normalize_query(raw: &str, mode: QueryNormalizationMode) -> Cow<'_, str> {
+    let mut previous = None;
+    let mut normal_form = true;
+    for (index, character) in raw.char_indices() {
+        let internal_apostrophe = is_apostrophe(character)
+            && previous.is_some_and(char::is_alphanumeric)
+            && raw[index + character.len_utf8()..]
+                .chars()
+                .next()
+                .is_some_and(char::is_alphanumeric);
+        if internal_apostrophe
+            || is_apostrophe(character)
+            || is_sentence_separator(character, previous, mode)
+            || (character.is_whitespace()
+                && (character != ' '
+                    || index == 0
+                    || index + 1 == raw.len()
+                    || previous == Some(' ')))
+        {
+            normal_form = false;
+            break;
+        }
+        previous = Some(character);
+    }
+    if normal_form {
+        return Cow::Borrowed(raw);
+    }
+
     let mut normalized = String::with_capacity(raw.len());
     let mut characters = raw.chars().peekable();
     let mut previous: Option<char> = None;
@@ -161,16 +169,30 @@ fn normalize_query(raw: &str, mode: QueryNormalizationMode) -> String {
         previous = Some(character);
     }
 
-    normalized
+    Cow::Owned(normalized)
 }
 
+fn lowercase_query(raw: &str) -> Cow<'_, str> {
+    if raw.chars().any(char::is_uppercase) {
+        Cow::Owned(raw.to_lowercase())
+    } else {
+        Cow::Borrowed(raw)
+    }
+}
+
+/// Initializes auxiliary indexes and touches each embedded archive page.
+///
+/// This optional warmup avoids constructing an owned lexical corpus. All query
+/// functions remain usable without calling `init` first.
 pub fn init() {
-    Lazy::force(&TRADITIONAL);
-    Lazy::force(&SIMPLIFIED);
-    Lazy::force(&PINYIN);
-    Lazy::force(&DATA);
-    Lazy::force(&IDENTITIES);
     Lazy::force(&CHINESE_FST);
+    Lazy::force(&PINYIN_FST);
+    for offset in (0..ARCHIVE_BYTES.0.len()).step_by(4096) {
+        std::hint::black_box(ARCHIVE_BYTES.0[offset]);
+    }
+    if let Some(last) = ARCHIVE_BYTES.0.last() {
+        std::hint::black_box(*last);
+    }
     init_english();
     character_converter::init();
     chinese_detection::init();
@@ -190,37 +212,49 @@ pub fn classify(raw: &str) -> ClassificationResult {
 /// # Query by English
 /// Query the dictionary specifically with English.
 /// Selects recognized concepts and returns the default bounded, deduplicated result list.
-pub fn query_by_english(raw: &str) -> Vec<&'static LexicalUnit> {
+pub fn query_by_english(raw: &str) -> Vec<LexicalUnitRef<'static>> {
     search_english(raw, EnglishSearchOptions::default())
         .map(|result| result.entries)
         .unwrap_or_default()
 }
 
+fn posting_slice(
+    postings: &'static [rkyv::Archived<u32>],
+    range: &ArchivedPostingRange,
+) -> &'static [rkyv::Archived<u32>] {
+    let start = range.start.to_native() as usize;
+    let end = start + range.len.to_native() as usize;
+    &postings[start..end]
+}
+
 #[inline]
-fn get_entries<'a>(dict: &'a Searchable, word: &str) -> impl Iterator<Item = &'a LexicalUnit> {
-    static EMPTY: Vec<u32> = Vec::new();
-    dict.get(word)
-        .unwrap_or(&EMPTY)
+fn pinyin_entries(word: &str) -> impl Iterator<Item = LexicalUnitRef<'static>> {
+    let runtime_keys = PINYIN_FST
+        .get(word)
+        .and_then(|ordinal| archive().pinyin_postings.get(ordinal as usize))
+        .map(|range| posting_slice(archive().pinyin_runtime_keys.as_slice(), range))
+        .unwrap_or_default();
+    runtime_keys
         .iter()
-        .map(|k| DATA.get(k).expect("Internal error: Missing definition"))
+        .map(|key| unit_by_runtime_key(key.to_native()).expect("validated Pinyin runtime key"))
 }
 
 /// # Query by Pinyin
 /// Query the dictionary specifically with Pinyin.
 /// Normalizes whitespace, sentence punctuation, and Pinyin apostrophes before lookup.
 /// Uses space as a token delineator. Supports pinyin with no tones, tone marks, and tone numbers.
-pub fn query_by_pinyin(raw: &str) -> Vec<&'static LexicalUnit> {
+pub fn query_by_pinyin(raw: &str) -> Vec<LexicalUnitRef<'static>> {
     let normalized = normalize_query(raw, QueryNormalizationMode::Pinyin);
     query_by_pinyin_normalized(&normalized)
 }
 
-fn query_by_pinyin_normalized(raw: &str) -> Vec<&'static LexicalUnit> {
+fn query_by_pinyin_normalized(raw: &str) -> Vec<LexicalUnitRef<'static>> {
     if raw.is_empty() {
         vec![]
     } else {
-        let raw = raw.to_lowercase();
+        let raw = lowercase_query(raw);
         raw.split_whitespace()
-            .flat_map(|word| get_entries(&PINYIN, word))
+            .flat_map(pinyin_entries)
             .collect::<Vec<_>>()
     }
 }
@@ -273,9 +307,21 @@ pub fn tokenize(raw: &str) -> Vec<&str> {
 
 /// Queries the exact simplified index first, then appends traditional-only references.
 /// References shared by both indexes are deduplicated by their common index ID.
-fn get_chinese_entries(word: &str) -> Vec<&'static LexicalUnit> {
-    let simplified_ids = SIMPLIFIED.get(word).map(Vec::as_slice).unwrap_or_default();
-    let traditional_ids = TRADITIONAL.get(word).map(Vec::as_slice).unwrap_or_default();
+fn get_chinese_entries(word: &str) -> Vec<LexicalUnitRef<'static>> {
+    let Some(postings) = CHINESE_FST
+        .get(word)
+        .and_then(|ordinal| archive().chinese_postings.get(ordinal as usize))
+    else {
+        return Vec::new();
+    };
+    let simplified_ids = posting_slice(
+        archive().chinese_runtime_keys.as_slice(),
+        &postings.simplified,
+    );
+    let traditional_ids = posting_slice(
+        archive().chinese_runtime_keys.as_slice(),
+        &postings.traditional,
+    );
 
     simplified_ids
         .iter()
@@ -284,14 +330,14 @@ fn get_chinese_entries(word: &str) -> Vec<&'static LexicalUnit> {
                 .iter()
                 .filter(|id| !simplified_ids.contains(id)),
         )
-        .map(|id| DATA.get(id).expect("Internal error: Missing definition"))
+        .map(|id| unit_by_runtime_key(id.to_native()).expect("validated Chinese runtime key"))
         .collect()
 }
 
 /// # Query by Chinese
 /// Query the dictionary specifically with Chinese characters.
 /// Supports both Traditional and Simplified Chinese characters.
-pub fn query_by_chinese(raw: &str) -> Vec<&'static LexicalUnit> {
+pub fn query_by_chinese(raw: &str) -> Vec<LexicalUnitRef<'static>> {
     tokenize(raw)
         .into_iter()
         .flat_map(get_chinese_entries)
@@ -300,14 +346,38 @@ pub fn query_by_chinese(raw: &str) -> Vec<&'static LexicalUnit> {
 
 /// # Query by exact Simplified Chinese word
 /// Query the Simplified dictionary for a specific word. Does not perform segmentation of input.
-pub fn query_by_simplified(raw: &str) -> Vec<&'static LexicalUnit> {
-    get_entries(&SIMPLIFIED, raw).collect::<Vec<_>>()
+pub fn query_by_simplified(raw: &str) -> Vec<LexicalUnitRef<'static>> {
+    let Some(postings) = CHINESE_FST
+        .get(raw)
+        .and_then(|ordinal| archive().chinese_postings.get(ordinal as usize))
+    else {
+        return Vec::new();
+    };
+    posting_slice(
+        archive().chinese_runtime_keys.as_slice(),
+        &postings.simplified,
+    )
+    .iter()
+    .map(|id| unit_by_runtime_key(id.to_native()).expect("validated Chinese runtime key"))
+    .collect()
 }
 
 /// # Query by exact Traditional Chinese word
 /// Query the Traditional dictionary for a specific word. Does not perform segmentation of input.
-pub fn query_by_traditional(raw: &str) -> Vec<&'static LexicalUnit> {
-    get_entries(&TRADITIONAL, raw).collect::<Vec<_>>()
+pub fn query_by_traditional(raw: &str) -> Vec<LexicalUnitRef<'static>> {
+    let Some(postings) = CHINESE_FST
+        .get(raw)
+        .and_then(|ordinal| archive().chinese_postings.get(ordinal as usize))
+    else {
+        return Vec::new();
+    };
+    posting_slice(
+        archive().chinese_runtime_keys.as_slice(),
+        &postings.traditional,
+    )
+    .iter()
+    .map(|id| unit_by_runtime_key(id.to_native()).expect("validated Chinese runtime key"))
+    .collect()
 }
 
 /// # Query
@@ -319,7 +389,7 @@ pub fn query_by_traditional(raw: &str) -> Vec<&'static LexicalUnit> {
 /// When querying using any of the supported pinyin options, space is used as a token delineator.
 ///
 /// English queries use the lexical concept search with its default limits and completion policy.
-pub fn query(raw: &str) -> Option<Vec<&'static LexicalUnit>> {
+pub fn query(raw: &str) -> Option<Vec<LexicalUnitRef<'static>>> {
     let normalized = normalize_query(raw, QueryNormalizationMode::General);
     if normalized.is_empty() {
         return None;
@@ -336,22 +406,32 @@ pub fn query(raw: &str) -> Option<Vec<&'static LexicalUnit>> {
     }
 }
 
-pub(crate) fn unit_by_runtime_key(runtime_key: u32) -> Option<&'static LexicalUnit> {
-    DATA.get(&runtime_key)
+pub(crate) fn unit_by_runtime_key(runtime_key: u32) -> Option<LexicalUnitRef<'static>> {
+    archive()
+        .lexical_units
+        .get(runtime_key as usize)
+        .map(LexicalUnitRef::new)
 }
 
-pub fn query_by_id(id: &LexicalId) -> Option<&'static LexicalUnit> {
-    IDENTITIES.get(id).and_then(|key| DATA.get(key))
+/// Looks up a parsed stable identity with one archived hash-table probe.
+pub fn query_by_id(id: &LexicalId) -> Option<LexicalUnitRef<'static>> {
+    archive()
+        .identities
+        .get(id.digest())
+        .and_then(|key| unit_by_runtime_key(key.to_native()))
 }
 
-pub fn query_by_id_str(id: &str) -> Option<&'static LexicalUnit> {
+/// Parses and looks up the external `1:<lowercase SHA-256 hex>` identity form.
+///
+/// Parsing uses fixed stack storage and lookup does not allocate.
+pub fn query_by_id_str(id: &str) -> Option<LexicalUnitRef<'static>> {
     LexicalId::parse(id).ok().as_ref().and_then(query_by_id)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::HashSet;
+    use fst::Streamer;
 
     #[test]
     fn normalizes_sentence_punctuation_into_token_boundaries() {
@@ -419,60 +499,56 @@ mod tests {
     }
 
     #[test]
-    fn chinese_fst_matches_the_union_of_both_indexes() {
-        let expected: HashSet<&str> = SIMPLIFIED
-            .keys()
-            .chain(TRADITIONAL.keys())
-            .map(String::as_str)
-            .collect();
-
-        assert_eq!(expected.len(), CHINESE_FST.len());
-        for headword in expected {
-            assert!(
-                CHINESE_FST.contains(headword),
-                "Missing FST key: {headword}"
-            );
+    fn chinese_fst_matches_its_posting_metadata() {
+        assert_eq!(archive().chinese_postings.len(), CHINESE_FST.len());
+        let mut stream = CHINESE_FST.stream();
+        while let Some((_headword, ordinal)) = stream.next() {
+            assert!(archive().chinese_postings.get(ordinal as usize).is_some());
         }
     }
 
     #[test]
     fn every_index_reference_matches_an_embedded_data_entry() {
-        for (index_name, dictionary) in [
-            ("traditional", &*TRADITIONAL),
-            ("simplified", &*SIMPLIFIED),
-            ("pinyin", &*PINYIN),
-        ] {
-            for (key, ids) in dictionary {
-                for id in ids {
-                    let entry = DATA.get(id).unwrap_or_else(|| {
-                        panic!("{index_name} index key {key:?} references missing ID {id}")
-                    });
-                    assert_eq!(DATA.get(id), Some(entry));
-                }
-            }
+        for runtime_key in archive()
+            .chinese_runtime_keys
+            .iter()
+            .chain(archive().pinyin_runtime_keys.iter())
+        {
+            assert!(
+                unit_by_runtime_key(runtime_key.to_native()).is_some(),
+                "missing runtime key {}",
+                runtime_key.to_native()
+            );
+        }
+        for (digest, runtime_key) in archive().identities.iter() {
+            let entry = unit_by_runtime_key(runtime_key.to_native()).unwrap();
+            assert_eq!(entry.id().digest(), digest);
         }
     }
 
     #[test]
-    fn every_chinese_query_equals_the_deduplicated_union_of_exact_indexes() {
-        for headword in SIMPLIFIED.keys().chain(TRADITIONAL.keys()) {
-            let mut seen = HashSet::new();
-            let expected_ids: Vec<LexicalId> = SIMPLIFIED
-                .get(headword)
-                .into_iter()
-                .flatten()
-                .chain(TRADITIONAL.get(headword).into_iter().flatten())
-                .copied()
-                .filter(|id| seen.insert(*id))
-                .map(|id| DATA.get(&id).unwrap().id.clone())
-                .collect();
-            let actual_ids: Vec<LexicalId> = query_by_chinese(headword)
-                .into_iter()
-                .map(|entry| entry.id.clone())
-                .collect();
+    fn borrowed_json_matches_the_owned_model() {
+        let entry = query_by_simplified("西瓜").into_iter().next().unwrap();
+        assert_eq!(
+            serde_json::to_value(entry).unwrap(),
+            serde_json::to_value(entry.to_owned()).unwrap()
+        );
+    }
 
+    #[test]
+    fn every_chinese_query_equals_the_deduplicated_exact_union() {
+        let mut stream = CHINESE_FST.stream();
+        while let Some((headword, _ordinal)) = stream.next() {
+            let headword = std::str::from_utf8(headword).unwrap();
+            let mut expected = query_by_simplified(headword);
+            for entry in query_by_traditional(headword) {
+                if !expected.iter().any(|present| present.id() == entry.id()) {
+                    expected.push(entry);
+                }
+            }
             assert_eq!(
-                expected_ids, actual_ids,
+                expected,
+                query_by_chinese(headword),
                 "Chinese query for {headword:?} did not equal the deduplicated exact-index union"
             );
         }

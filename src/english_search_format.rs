@@ -6,6 +6,7 @@
 //! Consumer-local normalization and binary reader support for Syng English search.
 
 use fst::Map;
+use std::borrow::Cow;
 use std::collections::BTreeSet;
 use std::fmt;
 use std::ops::Range;
@@ -1380,6 +1381,14 @@ pub struct QueryView {
 /// Produces literal and uniform spelling-alias query views with raw coverage intact.
 pub fn query_views(raw: &str) -> Vec<QueryView> {
     let literal = tokenize_query(raw);
+    query_views_from_literal(&literal)
+}
+
+/// Produces query views from an already-tokenized literal query.
+///
+/// This avoids repeating Unicode normalization when a caller also needs the
+/// literal tokens for byte-range planning.
+pub(crate) fn query_views_from_literal(literal: &[QuerySegment]) -> Vec<QueryView> {
     let has_apostrophe = literal
         .iter()
         .flat_map(|segment| &segment.tokens)
@@ -1461,25 +1470,31 @@ pub fn tokenize_query(raw: &str) -> Vec<QuerySegment> {
     let mut tokens = Vec::new();
     let mut token_start = None;
     let mut group = 0_u32;
-    let chars: Vec<(usize, char)> = raw.char_indices().collect();
     let finish =
         |end: usize, start: &mut Option<usize>, tokens: &mut Vec<QueryToken>, group: &mut u32| {
             if let Some(begin) = start.take() {
-                let normalized = normalize_text(&raw[begin..end]);
-                for text in normalized.split(' ') {
-                    if !text.is_empty() {
+                let normalized = normalize_text_cow(&raw[begin..end]);
+                if normalized.contains(' ') {
+                    for text in normalized.split(' ').filter(|text| !text.is_empty()) {
                         tokens.push(QueryToken {
                             text: text.to_owned(),
                             raw_range: begin..end,
                             raw_group: *group,
                         });
                     }
+                } else if !normalized.is_empty() {
+                    tokens.push(QueryToken {
+                        text: normalized.into_owned(),
+                        raw_range: begin..end,
+                        raw_group: *group,
+                    });
                 }
                 *group = group.saturating_add(1);
             }
         };
-    for (index, &(at, ch)) in chars.iter().enumerate() {
-        let end = chars.get(index + 1).map_or(raw.len(), |value| value.0);
+    let mut chars = raw.char_indices().peekable();
+    while let Some((at, ch)) = chars.next() {
+        let end = chars.peek().map_or(raw.len(), |value| value.0);
         if is_hard_boundary(ch) {
             finish(at, &mut token_start, &mut tokens, &mut group);
             if !tokens.is_empty() {
@@ -1492,14 +1507,14 @@ pub fn tokenize_query(raw: &str) -> Vec<QuerySegment> {
             || ((ch == '\'' || ch == '’' || ch == '-')
                 && token_start.is_some()
                 && chars
-                    .get(index + 1)
+                    .peek()
                     .is_some_and(|(_, next)| is_base_character(*next)))
         {
             token_start.get_or_insert(at);
         } else {
             finish(at, &mut token_start, &mut tokens, &mut group);
         }
-        if index + 1 == chars.len() {
+        if chars.peek().is_none() {
             finish(end, &mut token_start, &mut tokens, &mut group);
         }
     }
@@ -1511,6 +1526,31 @@ pub fn tokenize_query(raw: &str) -> Vec<QuerySegment> {
 
 /// Normalizes prose into ASCII-space-separated lexical tokens.
 pub fn normalize_text(value: &str) -> String {
+    normalize_text_cow(value).into_owned()
+}
+
+/// Normalizes prose while borrowing already-normalized ASCII input.
+pub fn normalize_text_cow(value: &str) -> Cow<'_, str> {
+    let bytes = value.as_bytes();
+    let already_normalized = bytes.iter().enumerate().all(|(index, byte)| match byte {
+        b'a'..=b'z' | b'0'..=b'9' => true,
+        b' ' => {
+            index > 0
+                && index + 1 < bytes.len()
+                && bytes[index - 1] != b' '
+                && bytes[index + 1] != b' '
+        }
+        b'\'' | b'-' => {
+            index > 0
+                && index + 1 < bytes.len()
+                && bytes[index - 1].is_ascii_alphanumeric()
+                && bytes[index + 1].is_ascii_alphanumeric()
+        }
+        _ => false,
+    });
+    if already_normalized {
+        return Cow::Borrowed(value);
+    }
     let folded = value
         .nfkc()
         .flat_map(char::to_lowercase)
@@ -1540,7 +1580,7 @@ pub fn normalize_text(value: &str) -> String {
     while result.ends_with(' ') {
         result.pop();
     }
-    result
+    Cow::Owned(result)
 }
 
 /// Returns the literal spelling plus deterministic apostrophe and hyphen aliases.
@@ -1753,6 +1793,7 @@ impl std::error::Error for FormatError {}
 mod tests {
     use super::*;
     use fst::Map;
+    use std::borrow::Cow;
 
     #[test]
     fn normalization_retains_digits_and_builds_spelling_aliases() {
@@ -1765,6 +1806,27 @@ mod tests {
         assert!(
             spelling_views("don't").contains(&("dont".to_owned(), DERIVATION_APOSTROPHE_REMOVED))
         );
+    }
+
+    #[test]
+    fn normalization_borrows_only_already_normalized_input() {
+        assert!(matches!(
+            normalize_text_cow("water-melon"),
+            Cow::Borrowed(_)
+        ));
+        assert!(matches!(normalize_text_cow("don't"), Cow::Borrowed(_)));
+        assert!(matches!(normalize_text_cow("Watermelon"), Cow::Owned(_)));
+        assert!(matches!(normalize_text_cow("-watermelon"), Cow::Owned(_)));
+        assert!(matches!(
+            normalize_text_cow("watermelon  fruit"),
+            Cow::Owned(_)
+        ));
+    }
+
+    #[test]
+    fn pretokenized_query_views_match_the_public_helper() {
+        let literal = tokenize_query("3-D don't");
+        assert_eq!(query_views("3-D don't"), query_views_from_literal(&literal));
     }
 
     #[test]

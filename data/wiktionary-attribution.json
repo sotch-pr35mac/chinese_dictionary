@@ -1,5 +1,5 @@
 {
-  "schema_version": 5,
+  "schema_version": 4,
   "explanation": "Each key identifies a LexicalUnit containing English Wiktionary material. The linked entry pages provide the contributor history used for author attribution.",
   "entries": {
     "1:00004ad53a1268ee7981589ab1805c79856c9b08736a8b07cd22a1108d429627": [

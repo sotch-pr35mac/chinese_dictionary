@@ -3,14 +3,21 @@ All notable changes to this project will be documented in this file. This projec
 
 ## [4.0.0] - 2026-09-15
 ### Breaking
-- Replaced `WordEntry` with the structured schema-5 `LexicalUnit` model and persistent `LexicalId` values.
+- Replaced `WordEntry` with the structured schema-4 `LexicalUnit` model and persistent `LexicalId` values.
 - Replaced the legacy exact English dictionary with bounded lexical concept search.
+- Lookup functions now return borrowed `LexicalUnitRef` views; call `to_owned()` when an owned model is required.
+- Removed English continuation cursors and pagination. English output limits are now restricted to `1..=200`.
 
 ### Added
-- Verified build-time decompression of the schema-5 Zstandard bundle.
+- A validated zero-copy lexical archive with constant-time digest identity lookup and native FST indexes.
 - Phrase, containment, morphology, optional-grammar, spelling-alias, and final-token English search.
-- Structured concept results, match evidence, work-limit reporting, and continuation cursors.
+- Structured concept results, match evidence, and work-limit reporting.
+- Direct Serde serialization and explicit owned conversion for borrowed lexical views.
 - Consumer-local schema types and English-search format support, so the published crate has no unpublished path dependencies.
+
+### Changed
+- English lookup defaults to 50 unique entries overall and 20 hits per selected concept.
+- Stable identities store fixed-size SHA-256 digests while preserving the external `1:<hex>` representation.
 
 ## [3.0.0] - 2026-09-08
 ### Breaking
