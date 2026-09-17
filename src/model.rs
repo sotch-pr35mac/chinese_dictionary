@@ -542,8 +542,6 @@ pub enum PartOfSpeech {
 pub struct Definition {
     /// Leaf English gloss.
     pub gloss: Sourced<String>,
-    /// Ordered parent glosses that scope the leaf gloss.
-    pub context: Vec<Sourced<String>>,
     /// Structured usage examples.
     pub examples: Vec<Sourced<Example>>,
     /// Substantive explanatory prose.
@@ -565,7 +563,6 @@ impl Definition {
     pub fn new(gloss: String, source: Source) -> Self {
         Self {
             gloss: Sourced::one(gloss, source),
-            context: Vec::new(),
             examples: Vec::new(),
             commentary: Vec::new(),
             qualifiers: Vec::new(),
@@ -985,13 +982,6 @@ impl<'a> DefinitionRef<'a> {
             inner: &self.inner.gloss,
         }
     }
-    /// Ordered parent glosses.
-    pub fn context(self) -> impl ExactSizeIterator<Item = SourcedStringRef<'a>> + 'a {
-        self.inner
-            .context
-            .iter()
-            .map(|inner| SourcedStringRef { inner })
-    }
     /// Structured usage examples.
     pub fn examples(self) -> impl ExactSizeIterator<Item = SourcedExampleRef<'a>> + 'a {
         self.inner
@@ -1269,12 +1259,8 @@ impl Serialize for DefinitionRef<'_> {
         S: Serializer,
     {
         use serde::ser::SerializeStruct;
-        let mut state = serializer.serialize_struct("Definition", 9)?;
+        let mut state = serializer.serialize_struct("Definition", 8)?;
         state.serialize_field("gloss", &self.gloss())?;
-        state.serialize_field(
-            "context",
-            &SourcedStringSlice(self.inner.context.as_slice()),
-        )?;
         state.serialize_field(
             "examples",
             &SourcedExampleSlice(self.inner.examples.as_slice()),

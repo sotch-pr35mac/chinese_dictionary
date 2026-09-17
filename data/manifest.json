@@ -82,10 +82,10 @@
     "CcCedict.input": 125058,
     "CcCedict.rejected": 181,
     "CcCedict.suppressed": 0,
-    "ChineseNotes.admitted": 21921,
+    "ChineseNotes.admitted": 21923,
     "ChineseNotes.input": 168813,
     "ChineseNotes.rejected": 7596,
-    "ChineseNotes.suppressed": 139296,
+    "ChineseNotes.suppressed": 139294,
     "Wiktionary.admitted": 81980,
     "Wiktionary.input": 406118,
     "Wiktionary.rejected": 324138,
@@ -95,7 +95,7 @@
     "LICENSE-DATA.txt": "1babe9081bcfe093f7187e5b9627459cb27edfe249be3d995d8bb774415e545c",
     "LICENSE-WORDNET.txt": "47bb35b06b51ec412353eb32f946f58002a2ff75b4ca56f733c33019155ebb8b",
     "NOTICE.md": "d6df90b1595bef052f34ae8846dd3bd035308ce52d9e399c50a5b4586a1f34bf",
-    "dictionary.rkyv.zst": "6f7cdba55aab5d0c05bffcbfc5fd2a88f2153a4e718e799fe13a3743107a29c9",
+    "dictionary.rkyv.zst": "cc71f04f330ef64ddfd5ed2d84aca9943a363a11086ca3e2291cb29296596f41",
     "english.search.zst": "b63bcb902e8a6ea99097e823d7ef52f57daaa3361867ed3035e9e2140f436e94"
   },
   "english_search": {

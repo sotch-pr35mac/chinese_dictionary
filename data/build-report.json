@@ -20,14 +20,13 @@
       },
       "chinese-notes": {
         "input_records": 168813,
-        "admitted_records": 21921,
-        "suppressed_records": 139296,
+        "admitted_records": 21923,
+        "suppressed_records": 139294,
         "rejected_records": 7596,
         "emitted_definitions": 0,
         "excluded_quotations": 0,
         "excluded_unknown_examples": 0,
         "diagnostics": {
-          "chinese-notes-ambiguous-definition": 2,
           "chinese-notes-incomplete-identity": 71194,
           "chinese-notes-unmatched-definition": 39733,
           "chinese-notes-unmatched-identity": 28354,
@@ -40,7 +39,7 @@
         "admitted_records": 81980,
         "suppressed_records": 0,
         "rejected_records": 324138,
-        "emitted_definitions": 90027,
+        "emitted_definitions": 90015,
         "excluded_quotations": 12488,
         "excluded_unknown_examples": 168,
         "diagnostics": {
@@ -68,8 +67,8 @@
       }
     },
     "lexical_units": 158194,
-    "definitions": 304015,
-    "chinese_notes_enriched_records": 21921,
+    "definitions": 304003,
+    "chinese_notes_enriched_records": 21923,
     "commonness_database_records": 155526,
     "commonness_nonzero_units": 31596,
     "commonness_database_sha256": "dba5c6e0a2e0a9b86a79c952715f3b526e8fe6eed587b02c20bba6cccca462fa"
@@ -78,7 +77,7 @@
     "LICENSE-DATA.txt": "1babe9081bcfe093f7187e5b9627459cb27edfe249be3d995d8bb774415e545c",
     "LICENSE-WORDNET.txt": "47bb35b06b51ec412353eb32f946f58002a2ff75b4ca56f733c33019155ebb8b",
     "NOTICE.md": "d6df90b1595bef052f34ae8846dd3bd035308ce52d9e399c50a5b4586a1f34bf",
-    "dictionary.rkyv.zst": "6f7cdba55aab5d0c05bffcbfc5fd2a88f2153a4e718e799fe13a3743107a29c9",
+    "dictionary.rkyv.zst": "cc71f04f330ef64ddfd5ed2d84aca9943a363a11086ca3e2291cb29296596f41",
     "english.search.zst": "b63bcb902e8a6ea99097e823d7ef52f57daaa3361867ed3035e9e2140f436e94"
   },
   "english_search": {
