@@ -9,6 +9,7 @@ A searchable Chinese/English dictionary with structured lexical data.
 - Search simplified Chinese, traditional Chinese, Pinyin, or English.
 - Classify text as Chinese, Pinyin, English, or uncertain.
 - Match English phrases, morphology, spelling aliases, and optional final-token completion.
+- Expose a document-normalized commonness score for ranking ambiguous results.
 - Return structured definitions, qualifiers, examples, pronunciation variants, classifiers, HSK memberships, and source attribution.
 - Convert between traditional and simplified Chinese and tokenize Chinese text.
 
@@ -17,6 +18,19 @@ A searchable Chinese/English dictionary with structured lexical data.
 Querying the dictionary returns lightweight borrowed entry views. These views expose
 field-named accessors, serialize directly with Serde, and can be converted to owned
 `LexicalUnit` values with `to_owned()` when longer-lived storage is needed.
+Paired Wiktionary examples expose optional `simplified`, `traditional`, and
+`english` fields; the borrowed `ExampleRef` provides matching accessors without
+materializing strings.
+
+Each `LexicalUnitRef` also exposes `commonness()`. A score of `0.0` means the
+identity was unseen in the configured frequency corpora; commonness is ranking
+evidence and must not be used to filter rare vocabulary.
+
+Chinese and Pinyin searches preserve token-span order and sort the results inside
+each span by descending commonness. English searches preserve the existing match
+quality ranking and use commonness only to break otherwise equal evidence ranks.
+English result groups follow their selected concepts in query order rather than
+being interleaved across concepts.
 
 ```rust
 use chinese_dictionary::query;
@@ -59,7 +73,10 @@ assert_eq!(vec!["今天", "天气", "不错"], tokenize("今天天气不错"));
 
 `query_by_english` uses the same borrowed entry-list result type as the other
 language-specific functions. It returns at most 50 unique entries by default,
-with at most 20 hits contributed by one selected concept.
+with at most 20 hits contributed by one selected concept. Results are grouped by
+selected concept in query order. Within a concept, whole-text, completion,
+derivation, omission, surrounding-text, and transformation evidence retain their
+existing precedence; commonness breaks ties before the stable identity fallback.
 
 Applications that need concept byte ranges and match evidence can use the separate
 `search_english` API. Its overall and per-concept limits must be in `1..=200`.

@@ -17,8 +17,8 @@
       "license_evidence_url": "https://cc-cedict.org/editor/editor.php?handler=Download",
       "copyright_notice": "CC-CEDICT, published by MDBG. Referenced work: CEDICT, Copyright (C) 1997, 1998 Paul Andrew Denisowski.",
       "attribution": "CC-CEDICT: Community maintained free Chinese-English dictionary, published by MDBG. CEDICT originated with Paul Andrew Denisowski.",
-      "modifications": "Parsed, normalized, filtered, structurally annotated, merged with other sources, and indexed by Syng Dictionary Creator.",
-      "parser_version": 1
+      "modifications": "Parsed, normalized, split into documented definition entries, structurally annotated through reviewed labels, merged with other sources, and indexed by Syng Dictionary Creator.",
+      "parser_version": 2
     },
     {
       "source": "chinese-notes",
@@ -31,8 +31,8 @@
       "license_evidence_url": "https://chinesenotes.com/about",
       "copyright_notice": "Copyright Fo Guang Shan 佛光山 2013-2025.",
       "attribution": "Chinese Notes Chinese-English dictionary, Copyright Fo Guang Shan 佛光山 2013-2025; project maintained by Alex Amies with upstream contributors acknowledged by Chinese Notes.",
-      "modifications": "Parsed, normalized, filtered, structurally annotated, merged with other sources, and indexed by Syng Dictionary Creator.",
-      "parser_version": 1
+      "modifications": "Used only to enrich exact pre-existing lexical identities and exact existing senses with whitelisted structured metadata; Chinese Notes does not establish identities or publish glosses.",
+      "parser_version": 2
     },
     {
       "source": "chinese-notes",
@@ -59,8 +59,8 @@
       "license_evidence_url": "https://en.wiktionary.org/wiki/Wiktionary:Copyrights",
       "copyright_notice": "English Wiktionary entry text is copyright its respective contributors.",
       "attribution": "English Wiktionary contributors; structured extraction by Tatu Ylonen's Wiktextract and distribution by Kaikki.org.",
-      "modifications": "Chinese records were retained from the Wiktextract snapshot, then Mandarin records and fields were conservatively selected, normalized, merged with other sources, and indexed by Syng Dictionary Creator. Quotations were excluded.",
-      "parser_version": 2
+      "modifications": "Chinese records were retained from the Wiktextract snapshot, then Mandarin records and fields were conservatively selected, normalized, routed through exact CC-CEDICT pronunciation evidence, and indexed by Syng Dictionary Creator. Deterministic simplified/traditional examples were paired; quotations were excluded.",
+      "parser_version": 3
     },
     {
       "source": "princeton-word-net",
@@ -78,55 +78,55 @@
     }
   ],
   "record_counts": {
-    "CcCedict.admitted": 124876,
+    "CcCedict.admitted": 124877,
     "CcCedict.input": 125058,
-    "CcCedict.rejected": 182,
+    "CcCedict.rejected": 181,
     "CcCedict.suppressed": 0,
-    "ChineseNotes.admitted": 161217,
+    "ChineseNotes.admitted": 21921,
     "ChineseNotes.input": 168813,
     "ChineseNotes.rejected": 7596,
-    "ChineseNotes.suppressed": 0,
-    "Wiktionary.admitted": 76170,
+    "ChineseNotes.suppressed": 139296,
+    "Wiktionary.admitted": 81980,
     "Wiktionary.input": 406118,
-    "Wiktionary.rejected": 329948,
+    "Wiktionary.rejected": 324138,
     "Wiktionary.suppressed": 0
   },
   "file_checksums": {
     "LICENSE-DATA.txt": "3f0c22b4438c6918efb202fe82c1b51c4c8b19eb4004749659e02315d2ff98db",
     "LICENSE-WORDNET.txt": "47bb35b06b51ec412353eb32f946f58002a2ff75b4ca56f733c33019155ebb8b",
-    "NOTICE.md": "4094509336b46a360dd7f87290aa3f2063ef4c9b472590817fb8d4b549a449f8",
-    "dictionary.rkyv.zst": "450a2d474a37e9969ccb5dadaa2551e9c72585c699bc1c26962813a3815c882c",
-    "english.search.zst": "4260473d946404171c5ec9acaa81348b682d73e7ea7538c53ecf03bc00d00a0f",
-    "wiktionary-attribution.json": "64e645c5b6dbdaa3d72bca25fd2ffe8498511022c2fa967d5c7dc50e80b4e53f"
+    "NOTICE.md": "1652440dffd4e601fe7b49f38f0c023dc8e8359017f8017f30fac4f0d1cf5c9c",
+    "dictionary.rkyv.zst": "6132d6545d08dcdceaf18a09cdf6d42f834b7d8620e3276fadc23ddcbe9e8c8f",
+    "english.search.zst": "b63bcb902e8a6ea99097e823d7ef52f57daaa3361867ed3035e9e2140f436e94",
+    "wiktionary-attribution.json": "ae3fd3831737b4f742aa65341e632174ab14f6cc0416cb40147a6fe7508a744e"
   },
   "english_search": {
-    "compressed_bytes": 22055271,
-    "uncompressed_bytes": 56222698,
-    "compressed_sha256": "4260473d946404171c5ec9acaa81348b682d73e7ea7538c53ecf03bc00d00a0f",
-    "uncompressed_sha256": "acf3420bb43bdaa147cc3d99c28cdbcc2f985dc7c3166bdeed02ca68691f4381",
-    "tokens": 123912,
-    "texts": 664011,
-    "bindings": 987173,
-    "occurrences": 3860398,
-    "direct_hits": 1393563,
-    "morphology_families": 31793,
-    "morphology_surfaces": 67139,
+    "compressed_bytes": 16923632,
+    "uncompressed_bytes": 42986034,
+    "compressed_sha256": "b63bcb902e8a6ea99097e823d7ef52f57daaa3361867ed3035e9e2140f436e94",
+    "uncompressed_sha256": "bbab5dbc64f063f92a68634d0d62c50a1e46e9fb34bfc60e5524f2ba2a1aa53e",
+    "tokens": 118199,
+    "texts": 474466,
+    "bindings": 670821,
+    "occurrences": 2768941,
+    "direct_hits": 1149159,
+    "morphology_families": 31191,
+    "morphology_surfaces": 65912,
     "maximum_text_tokens": 93,
     "maximum_phrase_bytes": 666,
     "section_raw_bytes": {
       "Metadata": 242,
-      "MorphologyAnalyses": 256926,
-      "MorphologyFst": 242371,
-      "MorphologyTokens": 433968,
-      "PhraseFst": 13132360,
-      "TextBindings": 3697376,
-      "TextMeta": 6879741,
-      "TextTokens": 11010091,
-      "TokenFst": 929827,
-      "TokenHits": 4927988,
-      "TokenMeta": 1795116,
-      "TokenOccurrences": 11729031,
-      "TokenStrings": 1187166
+      "MorphologyAnalyses": 251665,
+      "MorphologyFst": 238138,
+      "MorphologyTokens": 424819,
+      "PhraseFst": 9867743,
+      "TextBindings": 2507583,
+      "TextMeta": 4915692,
+      "TextTokens": 7892634,
+      "TokenFst": 894027,
+      "TokenHits": 4128817,
+      "TokenMeta": 1709577,
+      "TokenOccurrences": 9019112,
+      "TokenStrings": 1135471
     }
   },
   "attribution_requirement": "Redistributions must remain under CC-BY-SA-4.0 for the CC-licensed adapted material, preserve the separate WordNet license for WordNet-derived morphology, and include LICENSE-DATA.txt, LICENSE-WORDNET.txt, NOTICE.md, manifest.json, and wiktionary-attribution.json. Do not imply endorsement by any upstream project or contributor."

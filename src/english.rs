@@ -9,7 +9,7 @@ use crate::model::LexicalUnitRef;
 use fst::{IntoStreamer, Streamer};
 use once_cell::sync::Lazy;
 use serde::Serialize;
-use std::cmp::Ordering;
+use std::cmp::{Ordering, Reverse};
 use std::collections::{hash_map::Entry, BTreeMap, BTreeSet, HashMap};
 use std::fmt;
 use std::hash::{BuildHasherDefault, Hasher};
@@ -195,7 +195,7 @@ pub struct EnglishConcept {
 pub struct EnglishSearchResult {
     /// Selected concepts in query order.
     pub concepts: Vec<EnglishConcept>,
-    /// Unique entries merged round-robin across concepts.
+    /// Unique entries grouped by concept order, with each concept internally ranked.
     pub entries: Vec<LexicalUnitRef<'static>>,
     /// Whether discovery stopped at a configured work budget.
     ///
@@ -282,7 +282,7 @@ struct Candidate {
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
-struct Rank(u8, u8, u8, u8, u32, u16, u16, u32);
+struct Rank(u8, u8, u8, u8, u32, u16, u16, Reverse<u32>, u32);
 
 #[derive(Clone, Debug)]
 struct RankedHit {
@@ -358,27 +358,18 @@ pub fn search_english(
     }
     let mut entries = Vec::new();
     let mut entry_indices = IntegerMap::default();
-    let mut row = 0;
-    while entries.len() < options.limit {
-        let mut added = false;
-        for (_, pool) in &pools {
-            if let Some(hit) = pool.get(row) {
-                if let Entry::Vacant(entry) = entry_indices.entry(hit.runtime_key) {
-                    if let Some(unit) = unit_by_runtime_key(hit.runtime_key) {
-                        entry.insert(entries.len());
-                        entries.push(unit);
-                    }
-                }
-                added = true;
-                if entries.len() == options.limit {
-                    break;
+    'concepts: for (_, pool) in &pools {
+        for hit in pool {
+            if let Entry::Vacant(entry) = entry_indices.entry(hit.runtime_key) {
+                if let Some(unit) = unit_by_runtime_key(hit.runtime_key) {
+                    entry.insert(entries.len());
+                    entries.push(unit);
                 }
             }
+            if entries.len() == options.limit {
+                break 'concepts;
+            }
         }
-        if !added {
-            break;
-        }
-        row += 1;
     }
     let concepts = pools
         .into_iter()
@@ -1238,6 +1229,14 @@ fn rank_for(
     stored: StoredEvidence,
     surrounding: u32,
 ) -> Rank {
+    let commonness = unit_by_runtime_key(runtime.get())
+        .expect("validated English runtime key")
+        .commonness();
+    let commonness_bits = if commonness == 0.0 {
+        0
+    } else {
+        commonness.to_bits()
+    };
     let aliases = plan.query_flags & alias_mask() != 0 || stored.derived;
     let morphology = plan.morphology_changes != 0;
     let transform_class = match (aliases, morphology) {
@@ -1259,6 +1258,9 @@ fn rank_for(
         surrounding,
         plan.added_characters,
         transform_count,
+        // Scores are validated as finite and nonnegative. Their IEEE-754 bits
+        // therefore preserve numeric order; Reverse makes larger scores rank first.
+        Reverse(commonness_bits),
         runtime.get(),
     )
 }
@@ -1421,6 +1423,88 @@ mod tests {
     }
 
     #[test]
+    fn entries_follow_concept_order_instead_of_round_robin_order() {
+        let result = search_english(
+            "watermelon computer",
+            EnglishSearchOptions {
+                completion: CompletionMode::Disabled,
+                limit: 40,
+                per_concept_limit: 20,
+            },
+        )
+        .unwrap();
+        assert!(result.concepts.len() >= 2);
+
+        let mut seen = BTreeSet::new();
+        let first_seen = result
+            .concepts
+            .iter()
+            .flat_map(|concept| &concept.hits)
+            .filter_map(|hit| seen.insert(hit.entry_index).then_some(hit.entry_index))
+            .collect::<Vec<_>>();
+        assert_eq!(first_seen, (0..result.entries.len()).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn commonness_breaks_evidence_ties_without_overriding_relevance() {
+        let mut least_common = None;
+        let mut most_common = None;
+        for runtime_key in 0.. {
+            let Some(unit) = unit_by_runtime_key(runtime_key) else {
+                break;
+            };
+            let score = unit.commonness();
+            if least_common.is_none_or(|(_, old)| score < old) {
+                least_common = Some((runtime_key, score));
+            }
+            if most_common.is_none_or(|(_, old)| score > old) {
+                most_common = Some((runtime_key, score));
+            }
+        }
+        let (least_common, low_score) = least_common.unwrap();
+        let (most_common, high_score) = most_common.unwrap();
+        assert!(high_score > low_score);
+
+        let plan = Plan {
+            kind: PlanKind::Whole,
+            text_key: None,
+            token_id: Some(TokenId::new(0)),
+            start_in_text: 0,
+            matched_tokens: 1,
+            query_flags: 0,
+            morphology_changes: 0,
+            completion: false,
+            added_characters: 0,
+        };
+        let stored = StoredEvidence {
+            derivations: None,
+            derived: false,
+            parenthetical_omission: false,
+            transformation_count: 0,
+        };
+        let low_runtime = RuntimeKey::new(least_common);
+        let high_runtime = RuntimeKey::new(most_common);
+        let low_exact = rank_for(low_runtime, EnglishMatchKind::WholeText, &plan, stored, 0);
+        let high_exact = rank_for(high_runtime, EnglishMatchKind::WholeText, &plan, stored, 0);
+        let high_contained = rank_for(
+            high_runtime,
+            EnglishMatchKind::ContainedText,
+            &plan,
+            stored,
+            0,
+        );
+
+        assert!(
+            high_exact < low_exact,
+            "commonness should resolve an evidence tie"
+        );
+        assert!(
+            low_exact < high_contained,
+            "an exact match must outrank a more common containment match"
+        );
+    }
+
+    #[test]
     fn bounded_retention_matches_exhaustive_sorting() {
         let discovery = discover("run", CompletionMode::Disabled).unwrap();
         let selected = choose_concepts(&discovery.groups, &discovery.candidates);
@@ -1458,15 +1542,25 @@ mod tests {
             parenthetical_omission: false,
             transformation_count: 0,
         };
-        let mut inputs = (10_u32..=25)
-            .map(|key| (key, key, stored(Some(1))))
+        let zero_commonness_keys = (0_u32..)
+            .map_while(|key| unit_by_runtime_key(key).map(|unit| (key, unit.commonness())))
+            .filter_map(|(key, commonness)| (commonness == 0.0).then_some(key))
+            .take(16)
+            .collect::<Vec<_>>();
+        assert_eq!(zero_commonness_keys.len(), 16);
+        let retained_key = zero_commonness_keys[0];
+        let evicted_key = zero_commonness_keys[15];
+        let mut inputs = zero_commonness_keys
+            .iter()
+            .enumerate()
+            .map(|(index, &key)| (key, 10 + index as u32, stored(Some(1))))
             .collect::<Vec<_>>();
         // These arrive after the first pruning batch. One improves an evicted
         // key enough to re-enter; one improves a retained key.
-        inputs.push((25, 0, stored(Some(2))));
-        inputs.push((10, 1, stored(Some(2))));
+        inputs.push((evicted_key, 0, stored(Some(2))));
+        inputs.push((retained_key, 1, stored(Some(2))));
         // Equal rank must preserve the first evidence deterministically.
-        inputs.push((25, 0, stored(Some(4))));
+        inputs.push((evicted_key, 0, stored(Some(4))));
 
         let mut retained = RetainedHits::new(3);
         let mut exhaustive = IntegerMap::<RankedHit>::default();
@@ -1512,7 +1606,7 @@ mod tests {
             actual.iter().map(|hit| hit.rank).collect::<Vec<_>>(),
             expected.iter().map(|hit| hit.rank).collect::<Vec<_>>()
         );
-        assert_eq!(actual[0].runtime_key, 25);
+        assert_eq!(actual[0].runtime_key, evicted_key);
         assert_eq!(actual[0].evidence.stored_derivations, Some(2));
     }
 }

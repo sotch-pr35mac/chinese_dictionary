@@ -8,7 +8,16 @@ the following API changes together.
   `query_by_*` function returns `Vec<LexicalUnitRef<'static>>`.
 - Replace direct lexical field access with view accessors such as
   `entry.id()`, `entry.simplified()`, `entry.pinyin().numbers()`,
-  `entry.hsk()`, and `entry.english()`.
+  `entry.commonness()`, `entry.hsk()`, and `entry.english()`.
+- Search APIs now apply `entry.commonness()` within each independent span while
+  preserving query-span order. Chinese and Pinyin results are frequency-first
+  inside each token span. English retains its existing evidence precedence and
+  uses commonness only to break otherwise equal evidence ranks. A zero score
+  never filters an identity.
+- Example sentences now expose independent optional simplified and traditional
+  text through `ExampleRef::simplified()` and `ExampleRef::traditional()`.
+  Deterministically paired Wiktionary script variants are returned as one
+  example instead of duplicate example records.
 - Return borrowed views directly from Tauri commands when they are immediately
   serialized. `LexicalUnitRef` and every nested view implement Serde without
   materializing the owned lexical model.
@@ -23,7 +32,9 @@ the following API changes together.
   keys. Structured `EnglishHit::entry_index` addresses the corresponding item
   in `EnglishSearchResult::entries`.
 - English limits must be in `1..=200`; the defaults are 50 overall and 20 per
-  selected concept. Chinese and Pinyin result counts are unchanged.
+  selected concept. The flat English entry list is grouped by selected concepts
+  in query order instead of round-robin interleaving them. Chinese and Pinyin
+  result counts are unchanged.
 
 Persist `LexicalId`, never the private runtime vector index. The digest and
 external `1:<hex>` representation remain identity version 1 and preserve the

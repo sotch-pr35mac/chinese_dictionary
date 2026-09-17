@@ -14,7 +14,7 @@ No upstream project or contributor endorses Syng or this bundle. Source claims a
 - License evidence: https://cc-cedict.org/editor/editor.php?handler=Download
 - Copyright notice: CC-CEDICT, published by MDBG. Referenced work: CEDICT, Copyright (C) 1997, 1998 Paul Andrew Denisowski.
 - Attribution: CC-CEDICT: Community maintained free Chinese-English dictionary, published by MDBG. CEDICT originated with Paul Andrew Denisowski.
-- Changes: Parsed, normalized, filtered, structurally annotated, merged with other sources, and indexed by Syng Dictionary Creator.
+- Changes: Parsed, normalized, split into documented definition entries, structurally annotated through reviewed labels, merged with other sources, and indexed by Syng Dictionary Creator.
 
 ## ChineseNotes — dictionary
 
@@ -24,7 +24,7 @@ No upstream project or contributor endorses Syng or this bundle. Source claims a
 - License evidence: https://chinesenotes.com/about
 - Copyright notice: Copyright Fo Guang Shan 佛光山 2013-2025.
 - Attribution: Chinese Notes Chinese-English dictionary, Copyright Fo Guang Shan 佛光山 2013-2025; project maintained by Alex Amies with upstream contributors acknowledged by Chinese Notes.
-- Changes: Parsed, normalized, filtered, structurally annotated, merged with other sources, and indexed by Syng Dictionary Creator.
+- Changes: Used only to enrich exact pre-existing lexical identities and exact existing senses with whitelisted structured metadata; Chinese Notes does not establish identities or publish glosses.
 
 ## ChineseNotes — grammar-vocabulary
 
@@ -44,7 +44,7 @@ No upstream project or contributor endorses Syng or this bundle. Source claims a
 - License evidence: https://en.wiktionary.org/wiki/Wiktionary:Copyrights
 - Copyright notice: English Wiktionary entry text is copyright its respective contributors.
 - Attribution: English Wiktionary contributors; structured extraction by Tatu Ylonen's Wiktextract and distribution by Kaikki.org.
-- Changes: Chinese records were retained from the Wiktextract snapshot, then Mandarin records and fields were conservatively selected, normalized, merged with other sources, and indexed by Syng Dictionary Creator. Quotations were excluded.
+- Changes: Chinese records were retained from the Wiktextract snapshot, then Mandarin records and fields were conservatively selected, normalized, routed through exact CC-CEDICT pronunciation evidence, and indexed by Syng Dictionary Creator. Deterministic simplified/traditional examples were paired; quotations were excluded.
 
 ## PrincetonWordNet — morphology
 

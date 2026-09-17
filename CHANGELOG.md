@@ -1,7 +1,7 @@
 # Change Log
 All notable changes to this project will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org/).
 
-## [4.0.0] - 2026-09-15
+## [4.0.0] - Unreleased
 ### Breaking
 - Replaced `WordEntry` with the structured schema-4 `LexicalUnit` model and persistent `LexicalId` values.
 - Replaced the legacy exact English dictionary with bounded lexical concept search.
@@ -14,10 +14,22 @@ All notable changes to this project will be documented in this file. This projec
 - Structured concept results, match evidence, and work-limit reporting.
 - Direct Serde serialization and explicit owned conversion for borrowed lexical views.
 - Consumer-local schema types and English-search format support, so the published crate has no unpublished path dependencies.
+- Separate optional simplified and traditional fields for paired Wiktionary examples.
+- Structured `LexicalKind::Idiom` metadata from reviewed CC-CEDICT labels.
+- A document-normalized `commonness` score on every lexical unit, exposed
+  without allocation through `LexicalUnitRef::commonness()`.
 
 ### Changed
 - English lookup defaults to 50 unique entries overall and 20 hits per selected concept.
+- Chinese and Pinyin results are ordered by descending commonness within each
+  query span while preserving span order.
+- English commonness now breaks otherwise equal evidence ranks, and flat results
+  are grouped by concept order instead of interleaved round-robin.
 - Stable identities store fixed-size SHA-256 digests while preserving the external `1:<hex>` representation.
+- Refreshed the bundled schema-4 corpus with source-priority pronunciation handling,
+  Chinese Notes enrichment-only metadata, CC-CEDICT semicolon definitions, and
+  deterministic Wiktionary example pairing and generated missing-script example
+  fallbacks.
 
 ## [3.0.0] - 2026-09-08
 ### Breaking

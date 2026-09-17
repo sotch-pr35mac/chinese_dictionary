@@ -361,8 +361,10 @@ pub struct AlternativePronunciation {
     Deserialize,
 )]
 pub struct Example {
-    /// Chinese example text.
-    pub chinese: String,
+    /// Simplified Chinese example text when known.
+    pub simplified: Option<String>,
+    /// Traditional Chinese example text when known.
+    pub traditional: Option<String>,
     /// English translation when the source provides one.
     pub english: Option<String>,
 }
@@ -455,6 +457,8 @@ pub enum LexicalKind {
     Foreign,
     /// Infix.
     Infix,
+    /// Idiomatic expression.
+    Idiom,
     /// Productive lexical pattern.
     Pattern,
     /// Multiword phrase.
@@ -627,7 +631,7 @@ pub struct HskLevels {
 
 /// Canonical published dictionary entity for one exact identity tuple.
 #[derive(
-    Archive, RkyvDeserialize, RkyvSerialize, Clone, Debug, Eq, PartialEq, Serialize, Deserialize,
+    Archive, RkyvDeserialize, RkyvSerialize, Clone, Debug, PartialEq, Serialize, Deserialize,
 )]
 pub struct LexicalUnit {
     /// Persistent content-derived identity.
@@ -638,6 +642,8 @@ pub struct LexicalUnit {
     pub traditional: String,
     /// Primary Mandarin pronunciation.
     pub pinyin: Pinyin,
+    /// Document-normalized commonness score; zero means unseen in the frequency corpora.
+    pub commonness: f32,
     /// Entity-scoped pronunciation variants without their own lexical entity.
     pub alternative_pronunciations: Vec<Sourced<AlternativePronunciation>>,
     /// Entity-scoped classifier identities.
@@ -679,6 +685,11 @@ impl<'a> LexicalUnitRef<'a> {
         PinyinRef {
             inner: &self.inner.pinyin,
         }
+    }
+
+    /// Document-normalized commonness score used as a ranking prior.
+    pub fn commonness(self) -> f32 {
+        self.inner.commonness.to_native()
     }
 
     /// Entity-scoped pronunciation variants.
@@ -802,9 +813,14 @@ pub struct ExampleRef<'a> {
 }
 
 impl<'a> ExampleRef<'a> {
-    /// Chinese example text.
-    pub fn chinese(self) -> &'a str {
-        self.inner.chinese.as_str()
+    /// Simplified Chinese example text, when known.
+    pub fn simplified(self) -> Option<&'a str> {
+        self.inner.simplified.as_ref().map(|value| value.as_str())
+    }
+
+    /// Traditional Chinese example text, when known.
+    pub fn traditional(self) -> Option<&'a str> {
+        self.inner.traditional.as_ref().map(|value| value.as_str())
     }
 
     /// English translation, when present.
@@ -1206,8 +1222,9 @@ impl Serialize for ExampleRef<'_> {
         S: Serializer,
     {
         use serde::ser::SerializeStruct;
-        let mut state = serializer.serialize_struct("Example", 2)?;
-        state.serialize_field("chinese", self.chinese())?;
+        let mut state = serializer.serialize_struct("Example", 3)?;
+        state.serialize_field("simplified", &self.simplified())?;
+        state.serialize_field("traditional", &self.traditional())?;
         state.serialize_field("english", &self.english())?;
         state.end()
     }
@@ -1296,11 +1313,12 @@ impl Serialize for LexicalUnitRef<'_> {
         S: Serializer,
     {
         use serde::ser::SerializeStruct;
-        let mut state = serializer.serialize_struct("LexicalUnit", 8)?;
+        let mut state = serializer.serialize_struct("LexicalUnit", 9)?;
         state.serialize_field("id", &self.id())?;
         state.serialize_field("simplified", self.simplified())?;
         state.serialize_field("traditional", self.traditional())?;
         state.serialize_field("pinyin", &self.pinyin())?;
+        state.serialize_field("commonness", &self.commonness())?;
         state.serialize_field(
             "alternative_pronunciations",
             &SourcedAlternativePronunciationSlice(self.inner.alternative_pronunciations.as_slice()),

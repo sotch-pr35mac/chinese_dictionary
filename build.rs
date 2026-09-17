@@ -130,6 +130,10 @@ fn validate_dictionary_archive(
         return Err("identity index length mismatch".into());
     }
     for (runtime_key, unit) in dictionary.lexical_units.iter().enumerate() {
+        let commonness = unit.commonness.to_native();
+        if !commonness.is_finite() || commonness < 0.0 {
+            return Err("lexical unit has an invalid commonness score".into());
+        }
         let indexed_key = dictionary
             .identities
             .get(&unit.id.0)

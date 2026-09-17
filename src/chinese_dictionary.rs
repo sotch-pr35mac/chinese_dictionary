@@ -212,6 +212,8 @@ pub fn classify(raw: &str) -> ClassificationResult {
 /// # Query by English
 /// Query the dictionary specifically with English.
 /// Selects recognized concepts and returns the default bounded, deduplicated result list.
+/// Concepts remain in query order. Existing English relevance evidence ranks each concept,
+/// with commonness used only to break otherwise equal evidence ranks.
 pub fn query_by_english(raw: &str) -> Vec<LexicalUnitRef<'static>> {
     search_english(raw, EnglishSearchOptions::default())
         .map(|result| result.entries)
@@ -227,22 +229,35 @@ fn posting_slice(
     &postings[start..end]
 }
 
+fn sort_by_commonness(entries: &mut [LexicalUnitRef<'static>]) {
+    entries.sort_unstable_by(|left, right| {
+        right
+            .commonness()
+            .total_cmp(&left.commonness())
+            .then_with(|| left.id().cmp(&right.id()))
+    });
+}
+
 #[inline]
-fn pinyin_entries(word: &str) -> impl Iterator<Item = LexicalUnitRef<'static>> {
+fn pinyin_entries(word: &str) -> Vec<LexicalUnitRef<'static>> {
     let runtime_keys = PINYIN_FST
         .get(word)
         .and_then(|ordinal| archive().pinyin_postings.get(ordinal as usize))
         .map(|range| posting_slice(archive().pinyin_runtime_keys.as_slice(), range))
         .unwrap_or_default();
-    runtime_keys
+    let mut entries = runtime_keys
         .iter()
         .map(|key| unit_by_runtime_key(key.to_native()).expect("validated Pinyin runtime key"))
+        .collect::<Vec<_>>();
+    sort_by_commonness(&mut entries);
+    entries
 }
 
 /// # Query by Pinyin
 /// Query the dictionary specifically with Pinyin.
 /// Normalizes whitespace, sentence punctuation, and Pinyin apostrophes before lookup.
 /// Uses space as a token delineator. Supports pinyin with no tones, tone marks, and tone numbers.
+/// Token spans remain in query order, with results sorted by descending commonness per span.
 pub fn query_by_pinyin(raw: &str) -> Vec<LexicalUnitRef<'static>> {
     let normalized = normalize_query(raw, QueryNormalizationMode::Pinyin);
     query_by_pinyin_normalized(&normalized)
@@ -254,7 +269,7 @@ fn query_by_pinyin_normalized(raw: &str) -> Vec<LexicalUnitRef<'static>> {
     } else {
         let raw = lowercase_query(raw);
         raw.split_whitespace()
-            .flat_map(pinyin_entries)
+            .flat_map(|word| pinyin_entries(word).into_iter())
             .collect::<Vec<_>>()
     }
 }
@@ -323,7 +338,7 @@ fn get_chinese_entries(word: &str) -> Vec<LexicalUnitRef<'static>> {
         &postings.traditional,
     );
 
-    simplified_ids
+    let mut entries = simplified_ids
         .iter()
         .chain(
             traditional_ids
@@ -331,12 +346,15 @@ fn get_chinese_entries(word: &str) -> Vec<LexicalUnitRef<'static>> {
                 .filter(|id| !simplified_ids.contains(id)),
         )
         .map(|id| unit_by_runtime_key(id.to_native()).expect("validated Chinese runtime key"))
-        .collect()
+        .collect::<Vec<_>>();
+    sort_by_commonness(&mut entries);
+    entries
 }
 
 /// # Query by Chinese
 /// Query the dictionary specifically with Chinese characters.
 /// Supports both Traditional and Simplified Chinese characters.
+/// Token spans remain in query order, with results sorted by descending commonness per span.
 pub fn query_by_chinese(raw: &str) -> Vec<LexicalUnitRef<'static>> {
     tokenize(raw)
         .into_iter()
@@ -346,6 +364,7 @@ pub fn query_by_chinese(raw: &str) -> Vec<LexicalUnitRef<'static>> {
 
 /// # Query by exact Simplified Chinese word
 /// Query the Simplified dictionary for a specific word. Does not perform segmentation of input.
+/// Results are sorted by descending commonness.
 pub fn query_by_simplified(raw: &str) -> Vec<LexicalUnitRef<'static>> {
     let Some(postings) = CHINESE_FST
         .get(raw)
@@ -353,17 +372,20 @@ pub fn query_by_simplified(raw: &str) -> Vec<LexicalUnitRef<'static>> {
     else {
         return Vec::new();
     };
-    posting_slice(
+    let mut entries = posting_slice(
         archive().chinese_runtime_keys.as_slice(),
         &postings.simplified,
     )
     .iter()
     .map(|id| unit_by_runtime_key(id.to_native()).expect("validated Chinese runtime key"))
-    .collect()
+    .collect::<Vec<_>>();
+    sort_by_commonness(&mut entries);
+    entries
 }
 
 /// # Query by exact Traditional Chinese word
 /// Query the Traditional dictionary for a specific word. Does not perform segmentation of input.
+/// Results are sorted by descending commonness.
 pub fn query_by_traditional(raw: &str) -> Vec<LexicalUnitRef<'static>> {
     let Some(postings) = CHINESE_FST
         .get(raw)
@@ -371,13 +393,15 @@ pub fn query_by_traditional(raw: &str) -> Vec<LexicalUnitRef<'static>> {
     else {
         return Vec::new();
     };
-    posting_slice(
+    let mut entries = posting_slice(
         archive().chinese_runtime_keys.as_slice(),
         &postings.traditional,
     )
     .iter()
     .map(|id| unit_by_runtime_key(id.to_native()).expect("validated Chinese runtime key"))
-    .collect()
+    .collect::<Vec<_>>();
+    sort_by_commonness(&mut entries);
+    entries
 }
 
 /// # Query
@@ -536,6 +560,64 @@ mod tests {
     }
 
     #[test]
+    fn exposes_valid_commonness_scores() {
+        for runtime_key in 0..u32::try_from(archive().lexical_units.len()).unwrap() {
+            let score = unit_by_runtime_key(runtime_key).unwrap().commonness();
+            assert!(score.is_finite() && score >= 0.0);
+        }
+        assert!(
+            query_by_simplified("的")
+                .into_iter()
+                .any(|entry| entry.commonness() > 0.0),
+            "a common corpus word should carry a nonzero score"
+        );
+    }
+
+    #[test]
+    fn chinese_and_pinyin_results_are_frequency_sorted_within_each_span() {
+        let chinese_tokens = tokenize("你好我叫");
+        assert_eq!(chinese_tokens, ["你好", "我", "叫"]);
+        let expected_chinese = chinese_tokens
+            .iter()
+            .flat_map(|token| query_by_chinese(token))
+            .collect::<Vec<_>>();
+        assert_eq!(query_by_chinese("你好我叫"), expected_chinese);
+        for token in chinese_tokens {
+            assert_commonness_descending(&query_by_chinese(token));
+        }
+
+        let expected_pinyin = ["ni3", "hao3"]
+            .into_iter()
+            .flat_map(query_by_pinyin)
+            .collect::<Vec<_>>();
+        assert_eq!(query_by_pinyin("ni3 hao3"), expected_pinyin);
+        assert_commonness_descending(&query_by_pinyin("ni3"));
+        assert_commonness_descending(&query_by_pinyin("hao3"));
+    }
+
+    fn assert_commonness_descending(entries: &[LexicalUnitRef<'static>]) {
+        assert!(!entries.is_empty());
+        assert!(entries.windows(2).all(|pair| {
+            pair[0].commonness() > pair[1].commonness()
+                || (pair[0].commonness() == pair[1].commonness() && pair[0].id() < pair[1].id())
+        }));
+    }
+
+    #[test]
+    fn exposes_paired_simplified_and_traditional_examples() {
+        let paired = query_by_simplified("圆满")
+            .into_iter()
+            .flat_map(LexicalUnitRef::english)
+            .flat_map(|definition| definition.examples())
+            .map(|example| example.value())
+            .find(|example| example.simplified() == Some("圆满结束"))
+            .expect("the refreshed corpus should contain a paired 圆满 example");
+
+        assert_eq!(paired.traditional(), Some("圓滿結束"));
+        assert_eq!(paired.english(), Some("to come to a successful end"));
+    }
+
+    #[test]
     fn every_chinese_query_equals_the_deduplicated_exact_union() {
         let mut stream = CHINESE_FST.stream();
         while let Some((headword, _ordinal)) = stream.next() {
@@ -546,6 +628,7 @@ mod tests {
                     expected.push(entry);
                 }
             }
+            sort_by_commonness(&mut expected);
             assert_eq!(
                 expected,
                 query_by_chinese(headword),

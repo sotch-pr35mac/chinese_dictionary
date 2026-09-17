@@ -104,13 +104,18 @@ mod tests {
 
     fn expected_chinese_ids(headword: &str) -> Vec<LexicalId> {
         let mut seen = HashSet::new();
-
-        query_by_simplified(headword)
+        let mut entries = query_by_simplified(headword)
             .into_iter()
             .chain(query_by_traditional(headword))
             .filter(|entry| seen.insert(entry.id()))
-            .map(LexicalUnitRef::id)
-            .collect()
+            .collect::<Vec<_>>();
+        entries.sort_unstable_by(|left, right| {
+            right
+                .commonness()
+                .total_cmp(&left.commonness())
+                .then_with(|| left.id().cmp(&right.id()))
+        });
+        entries.into_iter().map(LexicalUnitRef::id).collect()
     }
 
     fn assert_contains_all(
@@ -148,6 +153,40 @@ mod tests {
             .concepts
             .iter()
             .any(|concept| concept.query_bytes == (0..raw.len())));
+    }
+
+    #[test]
+    fn conservative_prefers_the_common_learner_facing_translation() {
+        let results = query_by_english("conservative");
+        let describe = || {
+            results
+                .iter()
+                .take(20)
+                .map(|entry| {
+                    format!(
+                        "{} ({}, {:.6})",
+                        entry.simplified(),
+                        entry.pinyin().numbers(),
+                        entry.commonness()
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        let baoshou = results
+            .iter()
+            .position(|entry| entry.simplified() == "保守")
+            .unwrap_or_else(|| panic!("保守 missing from conservative results: {}", describe()));
+        let yuju = results
+            .iter()
+            .position(|entry| entry.pinyin().numbers() == "yu1ju1")
+            .unwrap_or_else(|| panic!("yu1ju1 missing from conservative results: {}", describe()));
+
+        assert!(
+            baoshou < yuju,
+            "保守 should outrank yu1ju1 for conservative: {}",
+            describe()
+        );
     }
 
     #[test]
