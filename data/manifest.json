@@ -59,8 +59,8 @@
       "license_evidence_url": "https://en.wiktionary.org/wiki/Wiktionary:Copyrights",
       "copyright_notice": "English Wiktionary entry text is copyright its respective contributors.",
       "attribution": "English Wiktionary contributors; structured extraction by Tatu Ylonen's Wiktextract and distribution by Kaikki.org.",
-      "modifications": "Chinese records were retained from the Wiktextract snapshot, then Mandarin records and fields were conservatively selected, normalized, routed through exact CC-CEDICT pronunciation evidence, and indexed by Syng Dictionary Creator. Deterministic simplified/traditional examples were paired; quotations were excluded.",
-      "parser_version": 3
+      "modifications": "Chinese records were retained from the Wiktextract snapshot, then Mandarin records and fields were conservatively selected, normalized, routed through exact CC-CEDICT pronunciation evidence, and indexed by Syng Dictionary Creator. Deterministic simplified/traditional examples were paired, and missing script counterparts were generated as canonical display fallbacks without replacing source-attested text; quotations were excluded.",
+      "parser_version": 4
     },
     {
       "source": "princeton-word-net",
@@ -94,8 +94,8 @@
   "file_checksums": {
     "LICENSE-DATA.txt": "3f0c22b4438c6918efb202fe82c1b51c4c8b19eb4004749659e02315d2ff98db",
     "LICENSE-WORDNET.txt": "47bb35b06b51ec412353eb32f946f58002a2ff75b4ca56f733c33019155ebb8b",
-    "NOTICE.md": "1652440dffd4e601fe7b49f38f0c023dc8e8359017f8017f30fac4f0d1cf5c9c",
-    "dictionary.rkyv.zst": "6132d6545d08dcdceaf18a09cdf6d42f834b7d8620e3276fadc23ddcbe9e8c8f",
+    "NOTICE.md": "caee7733fc4a95da3e35ed3a0b85d207f948943464e29576f244a936ee804679",
+    "dictionary.rkyv.zst": "6f7cdba55aab5d0c05bffcbfc5fd2a88f2153a4e718e799fe13a3743107a29c9",
     "english.search.zst": "b63bcb902e8a6ea99097e823d7ef52f57daaa3361867ed3035e9e2140f436e94",
     "wiktionary-attribution.json": "ae3fd3831737b4f742aa65341e632174ab14f6cc0416cb40147a6fe7508a744e"
   },

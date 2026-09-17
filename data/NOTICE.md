@@ -44,7 +44,7 @@ No upstream project or contributor endorses Syng or this bundle. Source claims a
 - License evidence: https://en.wiktionary.org/wiki/Wiktionary:Copyrights
 - Copyright notice: English Wiktionary entry text is copyright its respective contributors.
 - Attribution: English Wiktionary contributors; structured extraction by Tatu Ylonen's Wiktextract and distribution by Kaikki.org.
-- Changes: Chinese records were retained from the Wiktextract snapshot, then Mandarin records and fields were conservatively selected, normalized, routed through exact CC-CEDICT pronunciation evidence, and indexed by Syng Dictionary Creator. Deterministic simplified/traditional examples were paired; quotations were excluded.
+- Changes: Chinese records were retained from the Wiktextract snapshot, then Mandarin records and fields were conservatively selected, normalized, routed through exact CC-CEDICT pronunciation evidence, and indexed by Syng Dictionary Creator. Deterministic simplified/traditional examples were paired, and missing script counterparts were generated as canonical display fallbacks without replacing source-attested text; quotations were excluded.
 
 ## PrincetonWordNet — morphology
 
