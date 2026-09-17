@@ -75,12 +75,11 @@
     "commonness_database_sha256": "dba5c6e0a2e0a9b86a79c952715f3b526e8fe6eed587b02c20bba6cccca462fa"
   },
   "file_checksums": {
-    "LICENSE-DATA.txt": "3f0c22b4438c6918efb202fe82c1b51c4c8b19eb4004749659e02315d2ff98db",
+    "LICENSE-DATA.txt": "1babe9081bcfe093f7187e5b9627459cb27edfe249be3d995d8bb774415e545c",
     "LICENSE-WORDNET.txt": "47bb35b06b51ec412353eb32f946f58002a2ff75b4ca56f733c33019155ebb8b",
-    "NOTICE.md": "caee7733fc4a95da3e35ed3a0b85d207f948943464e29576f244a936ee804679",
+    "NOTICE.md": "d6df90b1595bef052f34ae8846dd3bd035308ce52d9e399c50a5b4586a1f34bf",
     "dictionary.rkyv.zst": "6f7cdba55aab5d0c05bffcbfc5fd2a88f2153a4e718e799fe13a3743107a29c9",
-    "english.search.zst": "b63bcb902e8a6ea99097e823d7ef52f57daaa3361867ed3035e9e2140f436e94",
-    "wiktionary-attribution.json": "ae3fd3831737b4f742aa65341e632174ab14f6cc0416cb40147a6fe7508a744e"
+    "english.search.zst": "b63bcb902e8a6ea99097e823d7ef52f57daaa3361867ed3035e9e2140f436e94"
   },
   "english_search": {
     "compressed_bytes": 16923632,

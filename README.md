@@ -23,14 +23,17 @@ Paired Wiktionary examples expose optional `simplified`, `traditional`, and
 materializing strings.
 
 Each `LexicalUnitRef` also exposes `commonness()`. A score of `0.0` means the
-identity was unseen in the configured frequency corpora; commonness is ranking
-evidence and must not be used to filter rare vocabulary.
+identity was unseen in the configured frequency corpora; commonness should be
+used as ranking evidence and isn’t necessarily authoritative of the word’s
+overall usage frequency given the size and limits of the corpora.
 
 Chinese and Pinyin searches preserve token-span order and sort the results inside
-each span by descending commonness. English searches preserve the existing match
-quality ranking and use commonness only to break otherwise equal evidence ranks.
-English result groups follow their selected concepts in query order rather than
-being interleaved across concepts.
+each span by descending commonness. English searches rank matches by the kind of
+evidence supporting the match, including whole-text matches, final-token
+completion, derivations, omissions, surrounding text, and transformations.
+Commonness breaks ties between otherwise equal evidence ranks. English result
+groups follow their selected concepts in query order rather than being
+interleaved across concepts.
 
 ```rust
 use chinese_dictionary::query;
@@ -75,8 +78,9 @@ assert_eq!(vec!["今天", "天气", "不错"], tokenize("今天天气不错"));
 language-specific functions. It returns at most 50 unique entries by default,
 with at most 20 hits contributed by one selected concept. Results are grouped by
 selected concept in query order. Within a concept, whole-text, completion,
-derivation, omission, surrounding-text, and transformation evidence retain their
-existing precedence; commonness breaks ties before the stable identity fallback.
+derivation, omission, surrounding-text, and transformation evidence are ordered
+by the v4 match-ranking rules; commonness breaks ties before the stable identity
+fallback.
 
 Applications that need concept byte ranges and match evidence can use the separate
 `search_english` API. Its overall and per-concept limits must be in `1..=200`.
@@ -85,8 +89,7 @@ through `EnglishSearchOptions`. `discovery_truncated` reports only that a search
 work budget prevented complete discovery; reaching an output limit does not set it.
 
 See [`examples/borrowed_to_json.rs`](examples/borrowed_to_json.rs) for direct JSON
-serialization and [`docs/performance.md`](docs/performance.md) for reproducible
-benchmark workloads. The later Syng application update is summarized in
+serialization. The later Syng application update is summarized in
 [`docs/migration-v4.md`](docs/migration-v4.md).
 
 ## License and data attribution
@@ -95,5 +98,4 @@ Library source is licensed under the [MIT License](LICENSE). Bundled dictionary 
 is licensed and attributed separately in
 [`data/LICENSE-DATA.txt`](data/LICENSE-DATA.txt),
 [`data/LICENSE-WORDNET.txt`](data/LICENSE-WORDNET.txt),
-[`data/NOTICE.md`](data/NOTICE.md), and
-[`data/wiktionary-attribution.json`](data/wiktionary-attribution.json).
+[`data/NOTICE.md`](data/NOTICE.md).

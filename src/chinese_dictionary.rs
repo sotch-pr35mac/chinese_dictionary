@@ -12,6 +12,8 @@ use std::borrow::Cow;
 
 const ARCHIVE_LEN: usize = include_bytes!(concat!(env!("OUT_DIR"), "/dictionary.rkyv")).len();
 
+// The aligned rkyv archive contract requires a 16-byte-aligned base address;
+// a plain byte array would only guarantee byte alignment.
 #[repr(C, align(16))]
 struct AlignedArchive([u8; ARCHIVE_LEN]);
 
@@ -212,7 +214,7 @@ pub fn classify(raw: &str) -> ClassificationResult {
 /// # Query by English
 /// Query the dictionary specifically with English.
 /// Selects recognized concepts and returns the default bounded, deduplicated result list.
-/// Concepts remain in query order. Existing English relevance evidence ranks each concept,
+/// Concepts remain in query order. V4 English match evidence ranks each concept,
 /// with commonness used only to break otherwise equal evidence ranks.
 pub fn query_by_english(raw: &str) -> Vec<LexicalUnitRef<'static>> {
     search_english(raw, EnglishSearchOptions::default())

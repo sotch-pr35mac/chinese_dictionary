@@ -3,29 +3,29 @@ All notable changes to this project will be documented in this file. This projec
 
 ## [4.0.0] - Unreleased
 ### Breaking
-- Replaced `WordEntry` with the structured schema-4 `LexicalUnit` model and persistent `LexicalId` values.
-- Replaced the legacy exact English dictionary with bounded lexical concept search.
-- Lookup functions now return borrowed `LexicalUnitRef` views; call `to_owned()` when an owned model is required.
-- Removed English continuation cursors and pagination. English output limits are now restricted to `1..=200`.
+- Replaced the public `WordEntry` model with the structured schema-4 `LexicalUnit` model and persistent `LexicalId` values.
+- Lookup functions now return borrowed `LexicalUnitRef` views with accessor methods; call `to_owned()` when an owned model is required.
+- Replaced exact English term lookup with bounded lexical concept search. English search limits are now bounded to `1..=200`, with defaults of 50 results overall and 20 results per selected concept.
 
 ### Added
 - A validated zero-copy lexical archive with constant-time digest identity lookup and native FST indexes.
 - Phrase, containment, morphology, optional-grammar, spelling-alias, and final-token English search.
 - Structured concept results, match evidence, and work-limit reporting.
 - Direct Serde serialization and explicit owned conversion for borrowed lexical views.
-- Consumer-local schema types and English-search format support, so the published crate has no unpublished path dependencies.
-- Separate optional simplified and traditional fields for paired Wiktionary examples.
+- Self-contained schema types and English-search format support in the published crate.
+- Structured example sentences with optional simplified and traditional fields for Wiktionary examples.
 - Structured `LexicalKind::Idiom` metadata from reviewed CC-CEDICT labels.
 - A document-normalized `commonness` score on every lexical unit, exposed
   without allocation through `LexicalUnitRef::commonness()`.
 
 ### Changed
-- English lookup defaults to 50 unique entries overall and 20 hits per selected concept.
 - Chinese and Pinyin results are ordered by descending commonness within each
   query span while preserving span order.
-- English commonness now breaks otherwise equal evidence ranks, and flat results
-  are grouped by concept order instead of interleaved round-robin.
-- Stable identities store fixed-size SHA-256 digests while preserving the external `1:<hex>` representation.
+- English matches are ranked by their v4 match evidence; commonness breaks
+  otherwise equal evidence ranks, and flat results are grouped by concept order
+  instead of interleaved round-robin.
+- Stable identities use fixed-size SHA-256 digests while preserving the external
+  `1:<hex>` representation.
 - Refreshed the bundled schema-4 corpus with source-priority pronunciation handling,
   Chinese Notes enrichment-only metadata, CC-CEDICT semicolon definitions, and
   deterministic Wiktionary example pairing and generated missing-script example
