@@ -10,7 +10,7 @@ All notable changes to this project will be documented in this file. This projec
 ### Added
 - A validated zero-copy lexical archive with constant-time digest identity lookup and native FST indexes.
 - Phrase, containment, morphology, optional-grammar, spelling-alias, and final-token English search.
-- Structured concept results, match evidence, and work-limit reporting.
+- Structured concept results with per-match details and work-limit reporting.
 - Direct Serde serialization and explicit owned conversion for borrowed lexical views.
 - Self-contained schema types and English-search format support in the published crate.
 - Structured example sentences with optional simplified and traditional fields for Wiktionary examples.
@@ -21,11 +21,6 @@ All notable changes to this project will be documented in this file. This projec
 ### Changed
 - Chinese and Pinyin results are ordered by descending commonness within each
   query span while preserving span order.
-- English matches are ranked by their v4 match evidence; commonness breaks
-  otherwise equal evidence ranks, and flat results are grouped by concept order
-  instead of interleaved round-robin.
-- Stable identities use fixed-size SHA-256 digests while preserving the external
-  `1:<hex>` representation.
 - Refreshed the bundled schema-4 corpus with source-priority pronunciation handling,
   Chinese Notes enrichment-only metadata, CC-CEDICT semicolon definitions, and
   deterministic Wiktionary example pairing and generated missing-script example

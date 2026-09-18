@@ -214,8 +214,10 @@ pub fn classify(raw: &str) -> ClassificationResult {
 /// # Query by English
 /// Query the dictionary specifically with English.
 /// Selects recognized concepts and returns the default bounded, deduplicated result list.
-/// Concepts remain in query order. V4 English match evidence ranks each concept,
-/// with commonness used only to break otherwise equal evidence ranks.
+/// Concepts remain in query order. Within each concept, more direct English
+/// matches rank first; matches that require completion, alternate spellings,
+/// morphology, or other transformations rank lower. Commonness breaks ties
+/// between otherwise equally direct matches.
 pub fn query_by_english(raw: &str) -> Vec<LexicalUnitRef<'static>> {
     search_english(raw, EnglishSearchOptions::default())
         .map(|result| result.entries)

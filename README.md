@@ -28,12 +28,12 @@ used as ranking evidence and isn’t necessarily authoritative of the word’s
 overall usage frequency given the size and limits of the corpora.
 
 Chinese and Pinyin searches preserve token-span order and sort the results inside
-each span by descending commonness. English searches rank matches by the kind of
-evidence supporting the match, including whole-text matches, final-token
-completion, derivations, omissions, surrounding text, and transformations.
-Commonness breaks ties between otherwise equal evidence ranks. English result
-groups follow their selected concepts in query order rather than being
-interleaved across concepts.
+each span by descending commonness. English searches rank the most direct matches
+first. Matches that require final-token completion, alternate spellings,
+morphology, omitted parenthetical text, surrounding text, or other transformations
+rank lower. Commonness breaks ties between otherwise equally direct matches.
+English result groups follow their selected concepts in query order rather than
+being interleaved across concepts.
 
 ```rust
 use chinese_dictionary::query;
@@ -77,19 +77,20 @@ assert_eq!(vec!["今天", "天气", "不错"], tokenize("今天天气不错"));
 `query_by_english` uses the same borrowed entry-list result type as the other
 language-specific functions. It returns at most 50 unique entries by default,
 with at most 20 hits contributed by one selected concept. Results are grouped by
-selected concept in query order. Within a concept, whole-text, completion,
-derivation, omission, surrounding-text, and transformation evidence are ordered
-by the v4 match-ranking rules; commonness breaks ties before the stable identity
-fallback.
+selected concept in query order. Within a concept, more direct English matches
+rank first; matches that require final-token completion, alternate spellings,
+morphology, or other transformations rank lower. Commonness breaks ties between
+otherwise equally direct matches.
 
-Applications that need concept byte ranges and match evidence can use the separate
-`search_english` API. Its overall and per-concept limits must be in `1..=200`.
+Applications that need concept byte ranges and per-match details can use the
+separate `search_english` API. Its overall and per-concept limits must be in
+`1..=200`.
 Completion for an unfinished final token is enabled by default and can be disabled
 through `EnglishSearchOptions`. `discovery_truncated` reports only that a search
 work budget prevented complete discovery; reaching an output limit does not set it.
 
 See [`examples/borrowed_to_json.rs`](examples/borrowed_to_json.rs) for direct JSON
-serialization. The later Syng application update is summarized in
+serialization. Migration notes from 3.0.0 are in
 [`docs/migration-v4.md`](docs/migration-v4.md).
 
 ## License and data attribution

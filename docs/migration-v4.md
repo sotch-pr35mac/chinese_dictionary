@@ -1,8 +1,7 @@
 # Migrating from chinese_dictionary 3.0.0 to 4.0.0
 
 This guide describes the public API and data-model changes from the 3.0.0
-release to 4.0.0. Syng is intentionally not changed in this release pass; when
-Syng adopts `chinese_dictionary = "4.0.0"`, make the following changes together.
+release to 4.0.0.
 
 ## API and data model
 
@@ -26,9 +25,11 @@ Syng adopts `chinese_dictionary = "4.0.0"`, make the following changes together.
 - Chinese and Pinyin searches preserve token-span order and sort results within
   each span by descending commonness. A zero commonness score does not filter an
   identity.
-- English lookup now uses lexical concept search rather than the exact English
-  term lookup available in 3.0.0. Matches are ranked by v4 match evidence, with
-  commonness breaking otherwise equal evidence ranks.
+- English lookup now searches definitions rather than requiring an exact English
+  term as in 3.0.0. More direct matches rank first; matches that require
+  final-token completion, alternate spellings, morphology, or other
+  transformations rank lower. Commonness breaks ties between otherwise equally
+  direct matches.
 - `query_by_english` returns at most 50 unique entries by default, with at most
   20 hits contributed by one selected concept. The structured `search_english`
   API accepts overall and per-concept limits in `1..=200`.
