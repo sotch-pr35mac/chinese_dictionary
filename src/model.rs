@@ -535,6 +535,69 @@ pub enum PartOfSpeech {
     Verb,
 }
 
+/// Reviewed Chinese varieties attached to a classifier reference.
+#[derive(
+    Archive,
+    RkyvDeserialize,
+    RkyvSerialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+    Serialize,
+    Deserialize,
+)]
+#[serde(rename_all = "kebab-case")]
+pub enum ChineseVariety {
+    Mandarin,
+    Sichuanese,
+    Dungan,
+    Cantonese,
+    Taishanese,
+    Gan,
+    Hakka,
+    Jin,
+    NorthernMin,
+    EasternMin,
+    MiddleChinese,
+    Hokkien,
+    Teochew,
+    LeizhouMin,
+    PuxianMin,
+    SouthernPinghua,
+    Wu,
+    Xiang,
+    LoudiXiang,
+    HengyangXiang,
+    OldChinese,
+}
+
+/// Chinese forms and an optional exact lexical target for a classifier.
+#[derive(
+    Archive,
+    RkyvDeserialize,
+    RkyvSerialize,
+    Clone,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+    Serialize,
+    Deserialize,
+)]
+pub struct MeasureWordReference {
+    pub traditional: String,
+    pub simplified: String,
+    pub lexical_id: Option<LexicalId>,
+    pub varieties: Vec<ChineseVariety>,
+}
+
 /// One ordered English definition and its independently attributed metadata.
 #[derive(
     Archive, RkyvDeserialize, RkyvSerialize, Clone, Debug, Eq, PartialEq, Serialize, Deserialize,
@@ -554,8 +617,8 @@ pub struct Definition {
     pub parts_of_speech: Vec<Sourced<PartOfSpeech>>,
     /// Pronunciations scoped to this definition.
     pub alternative_pronunciations: Vec<Sourced<AlternativePronunciation>>,
-    /// Classifier identities scoped to this definition.
-    pub measure_words: Vec<Sourced<LexicalId>>,
+    /// Classifier references scoped to this definition.
+    pub measure_words: Vec<Sourced<MeasureWordReference>>,
 }
 
 impl Definition {
@@ -643,8 +706,8 @@ pub struct LexicalUnit {
     pub commonness: f32,
     /// Entity-scoped pronunciation variants without their own lexical entity.
     pub alternative_pronunciations: Vec<Sourced<AlternativePronunciation>>,
-    /// Entity-scoped classifier identities.
-    pub measure_words: Vec<Sourced<LexicalId>>,
+    /// Entity-scoped classifier references.
+    pub measure_words: Vec<Sourced<MeasureWordReference>>,
     /// HSK proficiency memberships.
     pub hsk: HskLevels,
     /// Ordered English definitions.
@@ -699,12 +762,14 @@ impl<'a> LexicalUnitRef<'a> {
             .map(|inner| SourcedAlternativePronunciationRef { inner })
     }
 
-    /// Entity-scoped classifier identities.
-    pub fn measure_words(self) -> impl ExactSizeIterator<Item = SourcedLexicalIdRef<'a>> + 'a {
+    /// Entity-scoped classifier references.
+    pub fn measure_words(
+        self,
+    ) -> impl ExactSizeIterator<Item = SourcedMeasureWordReferenceRef<'a>> + 'a {
         self.inner
             .measure_words
             .iter()
-            .map(|inner| SourcedLexicalIdRef { inner })
+            .map(|inner| SourcedMeasureWordReferenceRef { inner })
     }
 
     /// HSK proficiency memberships.
@@ -747,6 +812,43 @@ impl PartialEq for LexicalUnitRef<'_> {
 }
 
 impl Eq for LexicalUnitRef<'_> {}
+
+/// Zero-copy classifier display forms, varieties, and optional lexical target.
+#[derive(Clone, Copy)]
+pub struct MeasureWordReferenceRef<'a> {
+    inner: &'a ArchivedMeasureWordReference,
+}
+
+impl<'a> MeasureWordReferenceRef<'a> {
+    /// Traditional Chinese classifier form.
+    pub fn traditional(self) -> &'a str {
+        self.inner.traditional.as_str()
+    }
+
+    /// Simplified Chinese classifier form.
+    pub fn simplified(self) -> &'a str {
+        self.inner.simplified.as_str()
+    }
+
+    /// Exact lexical target when one was uniquely resolved during bundle creation.
+    pub fn lexical_id(self) -> Option<LexicalId> {
+        self.inner
+            .lexical_id
+            .as_ref()
+            .map(|value| LexicalId::from_digest(value.0))
+    }
+
+    /// Reviewed varieties in which this classifier applies.
+    pub fn varieties(self) -> impl ExactSizeIterator<Item = ChineseVariety> + 'a {
+        self.inner.varieties.iter().map(chinese_variety)
+    }
+
+    /// Materializes this archived view.
+    pub fn to_owned(self) -> MeasureWordReference {
+        rkyv::deserialize::<MeasureWordReference, rkyv::rancor::Error>(self.inner)
+            .expect("build.rs validated the lexical archive")
+    }
+}
 
 /// Borrowed primary or alternate Pinyin.
 #[derive(Clone, Copy)]
@@ -921,11 +1023,13 @@ sourced_ref!(
     |value: &'a ArchivedSourced<String>| value.value.as_str()
 );
 sourced_ref!(
-    SourcedLexicalIdRef,
-    LexicalId,
-    LexicalId,
-    LexicalId,
-    |value: &'a ArchivedSourced<LexicalId>| LexicalId::from_digest(value.value.0)
+    SourcedMeasureWordReferenceRef,
+    MeasureWordReference,
+    MeasureWordReferenceRef<'a>,
+    MeasureWordReference,
+    |value: &'a ArchivedSourced<MeasureWordReference>| MeasureWordReferenceRef {
+        inner: &value.value
+    }
 );
 sourced_ref!(
     SourcedExampleRef,
@@ -1026,12 +1130,14 @@ impl<'a> DefinitionRef<'a> {
             .iter()
             .map(|inner| SourcedAlternativePronunciationRef { inner })
     }
-    /// Definition-scoped classifier identities.
-    pub fn measure_words(self) -> impl ExactSizeIterator<Item = SourcedLexicalIdRef<'a>> + 'a {
+    /// Definition-scoped classifier references.
+    pub fn measure_words(
+        self,
+    ) -> impl ExactSizeIterator<Item = SourcedMeasureWordReferenceRef<'a>> + 'a {
         self.inner
             .measure_words
             .iter()
-            .map(|inner| SourcedLexicalIdRef { inner })
+            .map(|inner| SourcedMeasureWordReferenceRef { inner })
     }
     /// Materializes this definition.
     pub fn to_owned(self) -> Definition {
@@ -1042,6 +1148,11 @@ impl<'a> DefinitionRef<'a> {
 
 fn source(value: &ArchivedSource) -> Source {
     rkyv::deserialize::<Source, rkyv::rancor::Error>(value)
+        .expect("build.rs validated the lexical archive")
+}
+
+fn chinese_variety(value: &ArchivedChineseVariety) -> ChineseVariety {
+    rkyv::deserialize::<ChineseVariety, rkyv::rancor::Error>(value)
         .expect("build.rs validated the lexical archive")
 }
 
@@ -1099,7 +1210,7 @@ macro_rules! impl_sourced_serialize {
 }
 
 impl_sourced_serialize!(SourcedStringRef);
-impl_sourced_serialize!(SourcedLexicalIdRef);
+impl_sourced_serialize!(SourcedMeasureWordReferenceRef);
 impl_sourced_serialize!(SourcedExampleRef);
 impl_sourced_serialize!(SourcedQualifierRef);
 impl_sourced_serialize!(SourcedLexicalKindRef);
@@ -1158,9 +1269,9 @@ view_slice!(
     SourcedAlternativePronunciationRef
 );
 view_slice!(
-    SourcedLexicalIdSlice,
-    ArchivedSourced<LexicalId>,
-    SourcedLexicalIdRef
+    SourcedMeasureWordReferenceSlice,
+    ArchivedSourced<MeasureWordReference>,
+    SourcedMeasureWordReferenceRef
 );
 
 struct HskLevelSlice<'a>(&'a [ArchivedHskLevel]);
@@ -1203,6 +1314,40 @@ impl Serialize for AlternativePronunciationRef<'_> {
         state.serialize_field("pronunciation", &self.pronunciation())?;
         state.serialize_field("label", self.label())?;
         state.end()
+    }
+}
+
+impl Serialize for MeasureWordReferenceRef<'_> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut state = serializer.serialize_struct("MeasureWordReference", 4)?;
+        state.serialize_field("traditional", self.traditional())?;
+        state.serialize_field("simplified", self.simplified())?;
+        state.serialize_field("lexical_id", &self.lexical_id())?;
+        state.serialize_field(
+            "varieties",
+            &ChineseVarietySlice(self.inner.varieties.as_slice()),
+        )?;
+        state.end()
+    }
+}
+
+struct ChineseVarietySlice<'a>(&'a [ArchivedChineseVariety]);
+
+impl Serialize for ChineseVarietySlice<'_> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        use serde::ser::SerializeSeq;
+        let mut sequence = serializer.serialize_seq(Some(self.0.len()))?;
+        for value in self.0 {
+            sequence.serialize_element(&chinese_variety(value))?;
+        }
+        sequence.end()
     }
 }
 
@@ -1287,7 +1432,7 @@ impl Serialize for DefinitionRef<'_> {
         )?;
         state.serialize_field(
             "measure_words",
-            &SourcedLexicalIdSlice(self.inner.measure_words.as_slice()),
+            &SourcedMeasureWordReferenceSlice(self.inner.measure_words.as_slice()),
         )?;
         state.end()
     }
@@ -1311,7 +1456,7 @@ impl Serialize for LexicalUnitRef<'_> {
         )?;
         state.serialize_field(
             "measure_words",
-            &SourcedLexicalIdSlice(self.inner.measure_words.as_slice()),
+            &SourcedMeasureWordReferenceSlice(self.inner.measure_words.as_slice()),
         )?;
         state.serialize_field("hsk", &self.hsk())?;
         state.serialize_field("english", &DefinitionSlice(self.inner.english.as_slice()))?;

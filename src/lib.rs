@@ -81,12 +81,12 @@ pub use self::english::{
     EnglishMatchKind, EnglishSearchError, EnglishSearchOptions, EnglishSearchResult,
 };
 pub use self::model::{
-    AlternativePronunciation, AlternativePronunciationRef, Definition, DefinitionRef, Example,
-    ExampleRef, HskLevel, HskLevels, HskLevelsRef, LexicalId, LexicalKind, LexicalUnit,
-    LexicalUnitRef, ModelError, PartOfSpeech, Pinyin, PinyinRef, Qualifier, QualifierCategory,
-    QualifierRef, Source, Sourced, SourcedAlternativePronunciationRef, SourcedExampleRef,
-    SourcedLexicalIdRef, SourcedLexicalKindRef, SourcedPartOfSpeechRef, SourcedQualifierRef,
-    SourcedStringRef,
+    AlternativePronunciation, AlternativePronunciationRef, ChineseVariety, Definition,
+    DefinitionRef, Example, ExampleRef, HskLevel, HskLevels, HskLevelsRef, LexicalId, LexicalKind,
+    LexicalUnit, LexicalUnitRef, MeasureWordReference, MeasureWordReferenceRef, ModelError,
+    PartOfSpeech, Pinyin, PinyinRef, Qualifier, QualifierCategory, QualifierRef, Source, Sourced,
+    SourcedAlternativePronunciationRef, SourcedExampleRef, SourcedLexicalKindRef,
+    SourcedMeasureWordReferenceRef, SourcedPartOfSpeechRef, SourcedQualifierRef, SourcedStringRef,
 };
 
 #[cfg(test)]

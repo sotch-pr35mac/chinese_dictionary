@@ -28,4 +28,5 @@ information in NOTICE.md.
 
 This file is a notice and license grant, not a substitute for the legal code at
 the URL above. Redistributions must retain this file, LICENSE-WORDNET.txt,
-NOTICE.md, and manifest.json together with the dictionary data.
+NOTICE.md, manifest.json, and wiktionary-attribution.json together with the
+dictionary data.

@@ -99,4 +99,5 @@ Library source is licensed under the [MIT License](LICENSE). Bundled dictionary 
 is licensed and attributed separately in
 [`data/LICENSE-DATA.txt`](data/LICENSE-DATA.txt),
 [`data/LICENSE-WORDNET.txt`](data/LICENSE-WORDNET.txt),
-[`data/NOTICE.md`](data/NOTICE.md).
+[`data/NOTICE.md`](data/NOTICE.md), and
+[`data/wiktionary-attribution.json`](data/wiktionary-attribution.json).

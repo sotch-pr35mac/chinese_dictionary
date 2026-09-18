@@ -564,6 +564,35 @@ mod tests {
     }
 
     #[test]
+    fn serializes_ambiguous_classifier_references_with_a_null_identity() {
+        let entry = query_by_simplified("细菌")
+            .into_iter()
+            .find(|entry| entry.traditional() == "細菌")
+            .expect("generated data should contain 細菌");
+        let serialized = serde_json::to_value(entry).unwrap();
+        let definitions = serialized["english"]
+            .as_array()
+            .expect("serialized entry should contain definitions");
+        assert!(definitions
+            .iter()
+            .all(|definition| definition["measure_words"]
+                .as_array()
+                .is_none_or(Vec::is_empty)));
+        let reference = serialized["measure_words"]
+            .as_array()
+            .expect("serialized entry should contain entry-level measure words")
+            .iter()
+            .find(|measure_word| {
+                measure_word["value"]["traditional"] == "種"
+                    && measure_word["value"]["simplified"] == "种"
+            })
+            .expect("細菌 should retain Wiktionary's 種／种 classifier");
+
+        assert_eq!(reference["value"]["lexical_id"], serde_json::Value::Null);
+        assert!(reference["value"]["varieties"].is_array());
+    }
+
+    #[test]
     fn exposes_valid_commonness_scores() {
         for runtime_key in 0..u32::try_from(archive().lexical_units.len()).unwrap() {
             let score = unit_by_runtime_key(runtime_key).unwrap().commonness();

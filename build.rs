@@ -147,8 +147,22 @@ fn validate_dictionary_archive(
                 .iter()
                 .flat_map(|definition| definition.measure_words.iter()),
         ) {
-            if !dictionary.identities.contains_key(&classifier.value.0) {
-                return Err("unresolved classifier identity".into());
+            let Some(identity) = classifier.value.lexical_id.as_ref() else {
+                continue;
+            };
+            let classifier_key = dictionary
+                .identities
+                .get(&identity.0)
+                .ok_or("classifier identity is absent from the identity map")?
+                .to_native();
+            let classifier_unit = dictionary
+                .lexical_units
+                .get(usize::try_from(classifier_key)?)
+                .ok_or("classifier identity points outside lexical units")?;
+            if classifier_unit.traditional.as_str() != classifier.value.traditional.as_str()
+                || classifier_unit.simplified.as_str() != classifier.value.simplified.as_str()
+            {
+                return Err("classifier identity does not match reference forms".into());
             }
         }
     }
