@@ -328,7 +328,7 @@ struct Discovery {
 
 /// Searches English definitions and returns structured concept and evidence data.
 ///
-/// Entry data borrows directly from the embedded dictionary archive. `limit`
+/// Entry data borrows directly from the compiled dictionary archive. `limit`
 /// and `per_concept_limit` must both be in `1..=200`.
 pub fn search_english(
     raw: &str,

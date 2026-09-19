@@ -1,6 +1,27 @@
 # Change Log
 All notable changes to this project will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org/).
 
+## [4.1.0] - 2026-09-19
+### Breaking
+- Published-crate builds and deployments now require the version-matched
+  `chinese_dictionary-data-4.1.0` release bundle through
+  `CHINESE_DICTIONARY_DATA_DIR`. This is a breaking build/deployment change
+  despite retaining the 4.x version; builds never download the data.
+
+### Changed
+- Reduced the crates.io package size by moving the immutable production data to
+  a versioned GitHub Release bundle.
+- Added strict version, file-name, length, checksum, schema, archive, and search
+  index validation for supplied bundles.
+- Added a permanent `wiktionary-attribution-4.1.0.json` release asset for
+  attribution and redistribution independently of the build bundle.
+- Added small generated fixtures for docs.rs builds so API documentation can be
+  built without downloading the production data bundle.
+
+### Fixed
+- Forced LF line endings for checksummed repository data and license files so
+  Windows Git checkouts do not invalidate the trusted bundle checksums.
+
 ## [4.0.0] - 2026-09-19
 ### Breaking
 - Replaced the public `WordEntry` model with the structured schema-4 `LexicalUnit` model and persistent `LexicalId` values.

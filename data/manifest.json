@@ -1,4 +1,8 @@
 {
+  "bundle_version": "4.1.0",
+  "release_url": "https://github.com/sotch-pr35mac/chinese_dictionary/releases/download/v4.1.0/chinese_dictionary-data-4.1.0.tar.gz",
+  "attribution_url": "https://github.com/sotch-pr35mac/chinese_dictionary/releases/download/v4.1.0/wiktionary-attribution-4.1.0.json",
+  "attribution_sha256": "ae3fd3831737b4f742aa65341e632174ab14f6cc0416cb40147a6fe7508a744e",
   "schema_version": 4,
   "archive_contract": "syng-dictionary-rkyv-v4-le-a16-p32",
   "creator_version": "4.0.0",
@@ -94,7 +98,7 @@
   "file_checksums": {
     "LICENSE-DATA.txt": "3f0c22b4438c6918efb202fe82c1b51c4c8b19eb4004749659e02315d2ff98db",
     "LICENSE-WORDNET.txt": "47bb35b06b51ec412353eb32f946f58002a2ff75b4ca56f733c33019155ebb8b",
-    "NOTICE.md": "caee7733fc4a95da3e35ed3a0b85d207f948943464e29576f244a936ee804679",
+    "NOTICE.md": "e3aa490a6af8ca2441b9339f053c02ad639fcc5a867a15e7991841703825730d",
     "dictionary.rkyv.zst": "1bec1cd0f607a010544a260e4e9b2dc3b488d3317dcb812c719d0bb8591e9ab3",
     "english.search.zst": "1fe806d2894428daf7d846885c95675fbe25fcf6fc1a02b91a36c53dda3ba008",
     "wiktionary-attribution.json": "ae3fd3831737b4f742aa65341e632174ab14f6cc0416cb40147a6fe7508a744e"

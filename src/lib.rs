@@ -8,6 +8,17 @@
 //! - Segment strings of Chinese characters into tokens using a dictionary-driven segmentation approach.
 //!
 //! ### Usage
+//!
+//! #### 4.1.0 data bundle prerequisite
+//!
+//! Version 4.1.0 requires the matching `chinese_dictionary-data-4.1.0` release
+//! bundle and `CHINESE_DICTIONARY_DATA_DIR` to be configured before compiling.
+//! Builds do not download data, and mismatched, incomplete, or modified bundles
+//! fail validation. See the
+//! [README installation instructions](https://github.com/sotch-pr35mac/chinese_dictionary#installation)
+//! and the
+//! [3.0.0 to 4.1.0 migration guide](https://github.com/sotch-pr35mac/chinese_dictionary/blob/v4.1.0/docs/migration-v4.md).
+//!
 //! Querying the dictionary
 //! ```rust
 //! extern crate chinese_dictionary;
@@ -52,8 +63,8 @@
 //! #### `LexicalUnitRef`
 //! Each result borrows stable identity, headwords, structured Pinyin, HSK data,
 //! sourced English definitions, classifiers, and pronunciation variants directly
-//! from the embedded archive. Use `to_owned()` only when an owned `LexicalUnit`
-//! is needed.
+//! from the validated archive compiled from the external data bundle. Use
+//! `to_owned()` only when an owned `LexicalUnit` is needed.
 //!
 //! #### `ClassificationResult` enum
 //! The possible values for the `ClassificationResult` enum are:

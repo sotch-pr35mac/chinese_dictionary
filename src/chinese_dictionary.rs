@@ -182,7 +182,7 @@ fn lowercase_query(raw: &str) -> Cow<'_, str> {
     }
 }
 
-/// Initializes auxiliary indexes and touches each embedded archive page.
+/// Initializes auxiliary indexes and touches each compiled archive page.
 ///
 /// This optional warmup avoids constructing an owned lexical corpus. All query
 /// functions remain usable without calling `init` first.

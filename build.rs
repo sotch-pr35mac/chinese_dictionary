@@ -17,10 +17,28 @@ mod english_search_format;
 #[path = "src/model.rs"]
 mod model;
 
-use dictionary_archive::{ArchivedDictionaryArchive, ArchivedPostingRange, ARCHIVE_CONTRACT};
-use english_search_format::{EnglishSearchIndex, TextKey, TokenId};
+use dictionary_archive::{
+    ArchivedDictionaryArchive, ArchivedPostingRange, DictionaryArchive, ARCHIVE_CONTRACT,
+};
+use english_search_format::{
+    write_container, EnglishSearchIndex, Section, SectionCodec, SectionKind, TextKey, TokenId,
+    GRAMMAR_VERSION, MORPHOLOGY_VERSION, NORMALIZATION_VERSION, SEARCH_FORMAT_VERSION,
+};
 use model::{IDENTITY_VERSION, SCHEMA_VERSION};
 
+const BUNDLE_VERSION: &str = "4.1.0";
+const DATA_ENV: &str = "CHINESE_DICTIONARY_DATA_DIR";
+const RELEASE_URL: &str = "https://github.com/sotch-pr35mac/chinese_dictionary/releases/download/v4.1.0/chinese_dictionary-data-4.1.0.tar.gz";
+const ATTRIBUTION_URL: &str = "https://github.com/sotch-pr35mac/chinese_dictionary/releases/download/v4.1.0/wiktionary-attribution-4.1.0.json";
+const REQUIRED_FILES: &[&str] = &[
+    "dictionary.rkyv.zst",
+    "english.search.zst",
+    "wiktionary-attribution.json",
+    "manifest.json",
+    "NOTICE.md",
+    "LICENSE-DATA.txt",
+    "LICENSE-WORDNET.txt",
+];
 const ARCHIVES: &[(&str, &str)] = &[
     ("dictionary.rkyv.zst", "dictionary.rkyv"),
     ("english.search.zst", "english.search"),
@@ -29,10 +47,48 @@ const MEBIBYTE: u64 = 1024 * 1024;
 
 #[derive(Deserialize)]
 struct Manifest {
+    bundle_version: String,
+    release_url: String,
+    attribution_url: String,
+    attribution_sha256: String,
     schema_version: u32,
     archive_contract: String,
     file_checksums: BTreeMap<String, String>,
     english_search: EnglishMetadata,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct TrustedManifest {
+    bundle_version: String,
+    bundle: ReleaseAsset,
+    standalone_attribution: ExternalFile,
+    files: BTreeMap<String, FileIntegrity>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ReleaseAsset {
+    file_name: String,
+    url: String,
+    bytes: u64,
+    sha256: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ExternalFile {
+    file_name: String,
+    url: String,
+    bytes: u64,
+    sha256: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FileIntegrity {
+    bytes: u64,
+    sha256: String,
 }
 
 #[derive(Deserialize)]
@@ -45,33 +101,72 @@ struct EnglishMetadata {
 
 fn main() {
     if let Err(error) = run() {
-        panic!("schema-4 dictionary bundle validation failed: {error}");
+        panic!("chinese_dictionary {BUNDLE_VERSION} data bundle validation failed: {error}");
     }
 }
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
-    let data_dir = PathBuf::from("data");
+    println!("cargo:rerun-if-env-changed={DATA_ENV}");
+    println!("cargo:rerun-if-env-changed=DOCS_RS");
+    println!("cargo:rerun-if-changed=data-manifest.json");
+
+    let output_dir = PathBuf::from(env::var_os("OUT_DIR").ok_or("OUT_DIR is missing")?);
+    if env::var_os("DOCS_RS").is_some() {
+        return write_documentation_fixtures(&output_dir);
+    }
+
+    let trusted: TrustedManifest = serde_json::from_str(include_str!("data-manifest.json"))?;
+    validate_trusted_manifest(&trusted)?;
+    let data_dir = env::var_os(DATA_ENV)
+        .map(PathBuf::from)
+        .ok_or_else(missing_data_message)?;
+
     let manifest_path = data_dir.join("manifest.json");
     println!("cargo:rerun-if-changed={}", manifest_path.display());
-    let manifest: Manifest = serde_json::from_slice(&fs::read(&manifest_path)?)?;
+    let manifest_bytes = fs::read(&manifest_path).map_err(|error| {
+        format!(
+            "required bundle file {} is unavailable: {error}. Download {RELEASE_URL}",
+            manifest_path.display()
+        )
+    })?;
+    let manifest: Manifest = serde_json::from_slice(&manifest_bytes)?;
+    if manifest.bundle_version != BUNDLE_VERSION {
+        return Err(format!(
+            "bundle version mismatch: expected {BUNDLE_VERSION}, found {}",
+            manifest.bundle_version
+        )
+        .into());
+    }
+    if manifest.release_url != RELEASE_URL || manifest.attribution_url != ATTRIBUTION_URL {
+        return Err("bundle release URLs do not match the trusted crate manifest".into());
+    }
+    if manifest.attribution_sha256 != trusted.files["wiktionary-attribution.json"].sha256 {
+        return Err("bundle attribution checksum does not match the trusted crate manifest".into());
+    }
     if manifest.schema_version != SCHEMA_VERSION {
         return Err(format!("unsupported bundle schema {}", manifest.schema_version).into());
     }
     if manifest.archive_contract.as_bytes() != ARCHIVE_CONTRACT {
         return Err("dictionary archive contract mismatch".into());
     }
+    validate_external_files(&data_dir, &trusted)?;
 
-    for (name, expected) in &manifest.file_checksums {
-        let path = data_dir.join(name);
-        println!("cargo:rerun-if-changed={}", path.display());
-        let bytes = fs::read(&path)?;
-        let actual = format!("{:x}", Sha256::digest(&bytes));
-        if &actual != expected {
-            return Err(format!("checksum mismatch for {name}").into());
+    if manifest.file_checksums.len() != REQUIRED_FILES.len() - 1 {
+        return Err("bundle manifest does not list exactly the required data files".into());
+    }
+    for &name in REQUIRED_FILES {
+        if name == "manifest.json" {
+            continue;
+        }
+        let expected = manifest
+            .file_checksums
+            .get(name)
+            .ok_or_else(|| format!("bundle manifest is missing the checksum for {name}"))?;
+        if expected != &trusted.files[name].sha256 {
+            return Err(format!("bundle manifest has the wrong checksum for {name}").into());
         }
     }
 
-    let output_dir = PathBuf::from(env::var_os("OUT_DIR").ok_or("OUT_DIR is missing")?);
     for &(archive, output) in ARCHIVES {
         let compressed = fs::read(data_dir.join(archive))?;
         let maximum = match archive {
@@ -85,7 +180,11 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         }
         let temporary = output_dir.join(format!("{output}.tmp"));
         fs::write(&temporary, raw)?;
-        fs::rename(temporary, output_dir.join(output))?;
+        let destination = output_dir.join(output);
+        if destination.exists() {
+            fs::remove_file(&destination)?;
+        }
+        fs::rename(temporary, destination)?;
     }
     let dictionary_bytes = fs::read(output_dir.join("dictionary.rkyv"))?;
     let mut aligned = AlignedVec::<16>::with_capacity(dictionary_bytes.len());
@@ -98,6 +197,149 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         return Err("English lexical-unit count mismatch".into());
     }
     validate_english_index(&parsed, unit_count)?;
+    Ok(())
+}
+
+fn missing_data_message() -> String {
+    format!(
+        "{DATA_ENV} is not set. Download and extract:\n  {RELEASE_URL}\n\nThen configure the extracted directory, for example:\n  {DATA_ENV}=/absolute/path/to/chinese_dictionary-data-{BUNDLE_VERSION} cargo build\n\nOr persist it in .cargo/config.toml:\n  [env]\n  {DATA_ENV} = {{ value = \"vendor/chinese_dictionary-data-{BUNDLE_VERSION}\", relative = true }}"
+    )
+}
+
+fn validate_trusted_manifest(trusted: &TrustedManifest) -> Result<(), Box<dyn std::error::Error>> {
+    if trusted.bundle_version != BUNDLE_VERSION || env!("CARGO_PKG_VERSION") != BUNDLE_VERSION {
+        return Err("crate and trusted bundle versions do not agree".into());
+    }
+    if trusted.bundle.file_name != format!("chinese_dictionary-data-{BUNDLE_VERSION}.tar.gz")
+        || trusted.bundle.url != RELEASE_URL
+        || trusted.bundle.bytes == 0
+        || trusted.bundle.sha256.len() != 64
+    {
+        return Err("trusted bundle asset metadata is invalid".into());
+    }
+    if trusted.standalone_attribution.file_name
+        != format!("wiktionary-attribution-{BUNDLE_VERSION}.json")
+        || trusted.standalone_attribution.url != ATTRIBUTION_URL
+    {
+        return Err("trusted standalone attribution metadata is invalid".into());
+    }
+    if trusted.files.len() != REQUIRED_FILES.len()
+        || REQUIRED_FILES
+            .iter()
+            .any(|name| !trusted.files.contains_key(*name))
+    {
+        return Err("trusted manifest does not contain exactly the required bundle files".into());
+    }
+    let attribution = &trusted.files["wiktionary-attribution.json"];
+    if attribution.bytes != trusted.standalone_attribution.bytes
+        || attribution.sha256 != trusted.standalone_attribution.sha256
+    {
+        return Err(
+            "trusted standalone attribution metadata does not match the bundled file".into(),
+        );
+    }
+    Ok(())
+}
+
+fn validate_external_files(
+    data_dir: &std::path::Path,
+    trusted: &TrustedManifest,
+) -> Result<(), Box<dyn std::error::Error>> {
+    for &name in REQUIRED_FILES {
+        let path = data_dir.join(name);
+        println!("cargo:rerun-if-changed={}", path.display());
+        let expected = &trusted.files[name];
+        let metadata = fs::metadata(&path).map_err(|error| {
+            format!(
+                "required bundle file {} is unavailable: {error}. Download {RELEASE_URL}",
+                path.display()
+            )
+        })?;
+        if metadata.len() != expected.bytes {
+            return Err(format!(
+                "length mismatch for {name}: expected {} bytes, found {}",
+                expected.bytes,
+                metadata.len()
+            )
+            .into());
+        }
+        let actual = sha256_file(&path)?;
+        if actual != expected.sha256 {
+            return Err(format!(
+                "checksum mismatch for {name}: expected {}, found {actual}",
+                expected.sha256
+            )
+            .into());
+        }
+    }
+    Ok(())
+}
+
+fn sha256_file(path: &std::path::Path) -> Result<String, Box<dyn std::error::Error>> {
+    let mut file = fs::File::open(path)?;
+    let mut digest = Sha256::new();
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let read = file.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        digest.update(&buffer[..read]);
+    }
+    Ok(format!("{:x}", digest.finalize()))
+}
+
+fn write_documentation_fixtures(
+    output_dir: &std::path::Path,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let empty_map = Map::from_iter(std::iter::empty::<(&str, u64)>())?;
+    let empty_fst = empty_map.as_fst().as_bytes().to_vec();
+    let dictionary = DictionaryArchive::documentation_fixture(empty_fst.clone());
+    let dictionary = rkyv::to_bytes::<rkyv::rancor::Error>(&dictionary)?;
+    fs::write(output_dir.join("dictionary.rkyv"), &dictionary)?;
+
+    let mut metadata = Vec::new();
+    for value in [
+        SEARCH_FORMAT_VERSION,
+        NORMALIZATION_VERSION,
+        GRAMMAR_VERSION,
+        MORPHOLOGY_VERSION,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+    ] {
+        metadata.extend_from_slice(&value.to_le_bytes());
+    }
+    metadata.extend_from_slice(&0_u32.to_le_bytes());
+    metadata.extend_from_slice(&0_u32.to_le_bytes());
+    metadata.extend_from_slice(&0_u32.to_le_bytes());
+
+    let sections = (1..=13)
+        .map(|raw| {
+            let kind = SectionKind::try_from(raw)?;
+            let bytes = match kind {
+                SectionKind::TokenFst | SectionKind::PhraseFst | SectionKind::MorphologyFst => {
+                    empty_fst.clone()
+                }
+                SectionKind::Metadata => metadata.clone(),
+                _ => Vec::new(),
+            };
+            Ok(Section {
+                kind,
+                codec: SectionCodec::RawV1,
+                item_count: 0,
+                bytes,
+            })
+        })
+        .collect::<Result<Vec<_>, english_search_format::FormatError>>()?;
+    let english = write_container(0, sections)?;
+    fs::write(output_dir.join("english.search"), english)?;
     Ok(())
 }
 

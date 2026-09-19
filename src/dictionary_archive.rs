@@ -4,9 +4,7 @@
 //! fixture tests protect the contract without making the published consumer
 //! depend on the generator.
 
-use crate::model::LexicalUnit;
-#[cfg(test)]
-use crate::model::{IDENTITY_VERSION, SCHEMA_VERSION};
+use crate::model::{LexicalUnit, IDENTITY_VERSION, SCHEMA_VERSION};
 use rkyv::{
     collections::swiss_table::{ArchivedHashMap, HashMapResolver},
     rancor::{Fallible, Source},
@@ -35,7 +33,7 @@ pub(crate) struct IdentityMap {
 }
 
 impl IdentityMap {
-    #[cfg(test)]
+    #[allow(dead_code)]
     pub(crate) fn new(entries: Vec<([u8; 32], u32)>) -> Self {
         debug_assert!(entries.windows(2).all(|pair| pair[0].0 < pair[1].0));
         Self { entries }
@@ -90,19 +88,25 @@ pub(crate) struct DictionaryArchive {
     pub(crate) pinyin_runtime_keys: Vec<u32>,
 }
 
-#[cfg(test)]
 impl DictionaryArchive {
+    #[cfg(test)]
     pub(crate) fn empty() -> Self {
+        Self::documentation_fixture(Vec::new())
+    }
+
+    /// Creates the empty archive used only while building API documentation.
+    #[allow(dead_code)]
+    pub(crate) fn documentation_fixture(empty_fst: Vec<u8>) -> Self {
         Self {
             archive_contract: *ARCHIVE_CONTRACT,
             schema_version: SCHEMA_VERSION,
             identity_version: IDENTITY_VERSION,
             lexical_units: Vec::new(),
             identities: IdentityMap::new(Vec::new()),
-            chinese_fst: Vec::new(),
+            chinese_fst: empty_fst.clone(),
             chinese_postings: Vec::new(),
             chinese_runtime_keys: Vec::new(),
-            pinyin_fst: Vec::new(),
+            pinyin_fst: empty_fst,
             pinyin_postings: Vec::new(),
             pinyin_runtime_keys: Vec::new(),
         }

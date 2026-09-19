@@ -714,7 +714,7 @@ pub struct LexicalUnit {
     pub english: Vec<Definition>,
 }
 
-/// Zero-copy view of one lexical unit stored in the embedded archive.
+/// Zero-copy view of one lexical unit stored in the compiled archive.
 #[derive(Clone, Copy)]
 pub struct LexicalUnitRef<'a> {
     inner: &'a ArchivedLexicalUnit,

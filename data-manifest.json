@@ -1,0 +1,45 @@
+{
+  "bundle_version": "4.1.0",
+  "bundle": {
+    "file_name": "chinese_dictionary-data-4.1.0.tar.gz",
+    "url": "https://github.com/sotch-pr35mac/chinese_dictionary/releases/download/v4.1.0/chinese_dictionary-data-4.1.0.tar.gz",
+    "bytes": 42659396,
+    "sha256": "58647b657ed3f1f3ba13307990381bf0e6fdfa9f4525d54d0eaef2dbe3125330"
+  },
+  "standalone_attribution": {
+    "file_name": "wiktionary-attribution-4.1.0.json",
+    "url": "https://github.com/sotch-pr35mac/chinese_dictionary/releases/download/v4.1.0/wiktionary-attribution-4.1.0.json",
+    "bytes": 15935466,
+    "sha256": "ae3fd3831737b4f742aa65341e632174ab14f6cc0416cb40147a6fe7508a744e"
+  },
+  "files": {
+    "dictionary.rkyv.zst": {
+      "bytes": 23566689,
+      "sha256": "1bec1cd0f607a010544a260e4e9b2dc3b488d3317dcb812c719d0bb8591e9ab3"
+    },
+    "english.search.zst": {
+      "bytes": 15396135,
+      "sha256": "1fe806d2894428daf7d846885c95675fbe25fcf6fc1a02b91a36c53dda3ba008"
+    },
+    "wiktionary-attribution.json": {
+      "bytes": 15935466,
+      "sha256": "ae3fd3831737b4f742aa65341e632174ab14f6cc0416cb40147a6fe7508a744e"
+    },
+    "manifest.json": {
+      "bytes": 8379,
+      "sha256": "6a2866b5c47a272dec23b6b88f57d48ecfc341b827043c3114969975fac88ea8"
+    },
+    "NOTICE.md": {
+      "bytes": 5204,
+      "sha256": "e3aa490a6af8ca2441b9339f053c02ad639fcc5a867a15e7991841703825730d"
+    },
+    "LICENSE-DATA.txt": {
+      "bytes": 1722,
+      "sha256": "3f0c22b4438c6918efb202fe82c1b51c4c8b19eb4004749659e02315d2ff98db"
+    },
+    "LICENSE-WORDNET.txt": {
+      "bytes": 1559,
+      "sha256": "47bb35b06b51ec412353eb32f946f58002a2ff75b4ca56f733c33019155ebb8b"
+    }
+  }
+}
