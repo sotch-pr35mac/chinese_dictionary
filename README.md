@@ -13,6 +13,84 @@ A searchable Chinese/English dictionary with structured lexical data.
 - Return structured definitions, qualifiers, examples, pronunciation variants, classifiers, HSK memberships, and source attribution.
 - Convert between traditional and simplified Chinese and tokenize Chinese text.
 
+## Installation
+
+Add the library to your application:
+
+```toml
+[dependencies]
+chinese_dictionary = "4.1.0"
+```
+
+Version 4.1.0 requires a version-matched external data bundle before Cargo can
+compile the crate. Builds do not download data. Download the bundle and checksum
+file from the v4.1.0 release, verify the bundle, and extract it:
+
+```sh
+mkdir -p vendor/chinese_dictionary-data-4.1.0
+curl -fLO https://github.com/sotch-pr35mac/chinese_dictionary/releases/download/v4.1.0/chinese_dictionary-data-4.1.0.tar.gz
+curl -fLO https://github.com/sotch-pr35mac/chinese_dictionary/releases/download/v4.1.0/SHA256SUMS
+grep ' chinese_dictionary-data-4.1.0.tar.gz$' SHA256SUMS | shasum -a 256 -c -
+tar -xzf chinese_dictionary-data-4.1.0.tar.gz -C vendor/chinese_dictionary-data-4.1.0
+```
+
+Set the directory for one shell:
+
+```sh
+export CHINESE_DICTIONARY_DATA_DIR="$PWD/vendor/chinese_dictionary-data-4.1.0"
+cargo build
+```
+
+For a persistent project configuration, create `.cargo/config.toml`:
+
+```toml
+[env]
+CHINESE_DICTIONARY_DATA_DIR = { value = "vendor/chinese_dictionary-data-4.1.0", relative = true }
+```
+
+Cargo resolves a `relative = true` value against the directory containing the
+configuration file and passes an absolute path to the build script. The build
+never accesses the network: it validates the version, names, lengths, checksums,
+and internal structure of the supplied bundle before compiling. A mismatched,
+incomplete, or modified bundle fails validation.
+
+The data archive is the only release asset required to compile. It already
+contains `wiktionary-attribution.json`, the data notices, and the data licenses.
+The standalone
+[`wiktionary-attribution-4.1.0.json`](https://github.com/sotch-pr35mac/chinese_dictionary/releases/download/v4.1.0/wiktionary-attribution-4.1.0.json)
+asset is provided for attribution and redistribution workflows; it is not a
+second build input.
+
+Repository contributors do not need this setup step. The repository tracks the
+reviewed release data and its `.cargo/config.toml` points builds at `data/`.
+Cargo's package allowlist excludes those large files from the crates.io archive.
+
+In CI, cache or download the same immutable bundle, extract it into the
+workspace, and set `CHINESE_DICTIONARY_DATA_DIR` for build and test steps. For
+example:
+
+```yaml
+- name: Provision chinese_dictionary data
+  shell: bash
+  run: |
+    mkdir -p vendor/chinese_dictionary-data-4.1.0
+    curl -fLO https://github.com/sotch-pr35mac/chinese_dictionary/releases/download/v4.1.0/chinese_dictionary-data-4.1.0.tar.gz
+    curl -fLO https://github.com/sotch-pr35mac/chinese_dictionary/releases/download/v4.1.0/SHA256SUMS
+    grep ' chinese_dictionary-data-4.1.0.tar.gz$' SHA256SUMS | shasum -a 256 -c -
+    tar -xzf chinese_dictionary-data-4.1.0.tar.gz -C vendor/chinese_dictionary-data-4.1.0
+- run: cargo test
+  env:
+    CHINESE_DICTIONARY_DATA_DIR: ${{ github.workspace }}/vendor/chinese_dictionary-data-4.1.0
+```
+
+For offline builds, vendor the extracted directory alongside your application
+and commit or otherwise mirror it in your internal dependency store. Keep the
+same `.cargo/config.toml` entry; no network access is attempted during a build.
+
+Upgrading from 3.0.0? Read the complete
+[`3.0.0` to `4.1.0` migration guide](docs/migration-v4.md), including the API,
+model, search, serialization, identity, and deployment changes.
+
 ## Usage
 
 Querying the dictionary returns lightweight borrowed entry views. These views expose
@@ -90,14 +168,20 @@ through `EnglishSearchOptions`. `discovery_truncated` reports only that a search
 work budget prevented complete discovery; reaching an output limit does not set it.
 
 See [`examples/borrowed_to_json.rs`](examples/borrowed_to_json.rs) for direct JSON
-serialization. Migration notes from 3.0.0 are in
-[`docs/migration-v4.md`](docs/migration-v4.md).
+serialization.
 
 ## License and data attribution
 
-Library source is licensed under the [MIT License](LICENSE). Bundled dictionary data
-is licensed and attributed separately in
+Library source is licensed under the [MIT License](LICENSE). Dictionary data is
+licensed and attributed separately in
 [`data/LICENSE-DATA.txt`](data/LICENSE-DATA.txt),
-[`data/LICENSE-WORDNET.txt`](data/LICENSE-WORDNET.txt),
-[`data/NOTICE.md`](data/NOTICE.md), and
-[`data/wiktionary-attribution.json`](data/wiktionary-attribution.json).
+[`data/LICENSE-WORDNET.txt`](data/LICENSE-WORDNET.txt), and
+[`data/NOTICE.md`](data/NOTICE.md). Per-entry English Wiktionary attribution is
+available in the permanent
+[`wiktionary-attribution-4.1.0.json`](https://github.com/sotch-pr35mac/chinese_dictionary/releases/download/v4.1.0/wiktionary-attribution-4.1.0.json)
+release asset.
+
+Applications that redistribute compiled dictionary data must retain the data
+license, WordNet license, notices, and the version-specific attribution link
+supplied with this bundle. Do not imply endorsement by upstream projects or
+contributors.

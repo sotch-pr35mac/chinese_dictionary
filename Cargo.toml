@@ -1,6 +1,6 @@
 [package]
 name = "chinese_dictionary"
-version = "4.0.0"
+version = "4.1.0"
 authors = ["Preston Wang-Stosur-Bassett <p.wanstobas@gmail.com>"]
 description = "A searchable Chinese / English dictionary with helpful utilities."
 repository = "https://github.com/sotch-pr35mac/chinese_dictionary"
@@ -11,7 +11,22 @@ license = "MIT"
 edition = "2021"
 rust-version = "1.85"
 build = "build.rs"
-exclude = ["CHANGELOG.md", "LICENSE-CC-CEDICT.rtf", "target"]
+include = [
+    "Cargo.toml",
+    "Cargo.lock",
+    "build.rs",
+    "src/**",
+    "examples/**",
+    "docs/**",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "data-manifest.json",
+    "data/manifest.json",
+    "data/NOTICE.md",
+    "data/LICENSE-DATA.txt",
+    "data/LICENSE-WORDNET.txt",
+]
 
 [dependencies]
 character_converter = "2.1.4"

@@ -56,6 +56,6 @@ No upstream project or contributor endorses Syng or this bundle. Source claims a
 - Attribution: Princeton University WordNet 3.1 lexical database.
 - Changes: Noun and verb lemmas and exception lists were parsed, normalized, filtered to families intersecting the English gloss corpus, and encoded as morphology mappings.
 
-For English Wiktionary material, `wiktionary-attribution.json` links each affected lexical identity to its entry page and contributor history. Wiktionary is also offered upstream under the GFDL; this bundle uses the CC-BY-SA-4.0 option.
+For English Wiktionary material, `wiktionary-attribution.json` links each affected lexical identity to its entry page and contributor history. The same attribution resource is available at the permanent, version-specific URL [wiktionary-attribution-4.1.0.json](https://github.com/sotch-pr35mac/chinese_dictionary/releases/download/v4.1.0/wiktionary-attribution-4.1.0.json). Wiktionary is also offered upstream under the GFDL; this bundle uses the CC-BY-SA-4.0 option.
 
 WordNet-derived morphology is included under the separate Princeton WordNet license. The complete license text is provided in `LICENSE-WORDNET.txt`, which must accompany any redistribution containing that material.
