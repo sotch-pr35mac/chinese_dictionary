@@ -1,3 +1,5 @@
 /target
 **/.DS_Store
-/docs
+/docs/performance-results-2026-09-16.md
+/docs/performance.md
+/docs/query-normalization.md

@@ -1,0 +1,114 @@
+{
+  "schema_version": 4,
+  "report": {
+    "sources": {
+      "cc-cedict": {
+        "input_records": 125058,
+        "admitted_records": 124877,
+        "suppressed_records": 0,
+        "rejected_records": 181,
+        "emitted_definitions": 213988,
+        "excluded_quotations": 0,
+        "excluded_unknown_examples": 0,
+        "diagnostics": {
+          "invalid-primary-pinyin": 177,
+          "malformed-alternative-pinyin: wa1sei1": 1,
+          "malformed-alternative-pinyin: yai2": 1,
+          "malformed-pronunciation-annotation at line 58992": 1,
+          "malformed-pronunciation-annotation at line 74134": 1
+        }
+      },
+      "chinese-notes": {
+        "input_records": 168813,
+        "admitted_records": 21874,
+        "suppressed_records": 139343,
+        "rejected_records": 7596,
+        "emitted_definitions": 0,
+        "excluded_quotations": 0,
+        "excluded_unknown_examples": 0,
+        "diagnostics": {
+          "chinese-notes-incomplete-identity": 71194,
+          "chinese-notes-unmatched-definition": 39781,
+          "chinese-notes-unmatched-identity": 28354,
+          "invalid-or-ambiguous-marked-pinyin": 2251,
+          "missing-english-gloss": 5345
+        }
+      },
+      "wiktionary": {
+        "input_records": 406118,
+        "admitted_records": 81980,
+        "suppressed_records": 0,
+        "rejected_records": 324138,
+        "emitted_definitions": 116696,
+        "excluded_quotations": 12488,
+        "excluded_unknown_examples": 168,
+        "diagnostics": {
+          "ambiguous-script-forms": 6703,
+          "deduplicated-normalized-example": 833,
+          "example-script-tag-conversion-mismatch": 1561,
+          "excluded-non-mandarin-sense": 3262,
+          "generated-simplified-example": 2305,
+          "generated-traditional-example": 1637,
+          "inferred-script-neutral-example": 1,
+          "inferred-traditional-example": 12,
+          "missing-explicit-mandarin-pinyin": 72237,
+          "no-publishable-mandarin-definitions": 1495,
+          "non-lexical-pos": 108917,
+          "paired-script-example": 8863,
+          "redirect": 124471,
+          "sense-without-gloss": 74,
+          "unclassifiable-mixed-script-example": 3,
+          "unmapped-topic": 26883,
+          "wiktionary-ambiguous-incomplete-record": 8,
+          "wiktionary-ambiguous-multiple-pronunciations": 128,
+          "wiktionary-unassignable-incomplete-record": 5223,
+          "wiktionary-unassignable-multiple-pronunciations": 4956
+        }
+      }
+    },
+    "lexical_units": 158194,
+    "definitions": 330684,
+    "chinese_notes_enriched_records": 21874,
+    "commonness_database_records": 155526,
+    "commonness_nonzero_units": 31596,
+    "commonness_database_sha256": "dba5c6e0a2e0a9b86a79c952715f3b526e8fe6eed587b02c20bba6cccca462fa"
+  },
+  "file_checksums": {
+    "LICENSE-DATA.txt": "3f0c22b4438c6918efb202fe82c1b51c4c8b19eb4004749659e02315d2ff98db",
+    "LICENSE-WORDNET.txt": "47bb35b06b51ec412353eb32f946f58002a2ff75b4ca56f733c33019155ebb8b",
+    "NOTICE.md": "caee7733fc4a95da3e35ed3a0b85d207f948943464e29576f244a936ee804679",
+    "dictionary.rkyv.zst": "1bec1cd0f607a010544a260e4e9b2dc3b488d3317dcb812c719d0bb8591e9ab3",
+    "english.search.zst": "1fe806d2894428daf7d846885c95675fbe25fcf6fc1a02b91a36c53dda3ba008",
+    "wiktionary-attribution.json": "ae3fd3831737b4f742aa65341e632174ab14f6cc0416cb40147a6fe7508a744e"
+  },
+  "english_search": {
+    "compressed_bytes": 15396135,
+    "uncompressed_bytes": 38675706,
+    "compressed_sha256": "1fe806d2894428daf7d846885c95675fbe25fcf6fc1a02b91a36c53dda3ba008",
+    "uncompressed_sha256": "6f51c60660f8f41ef7b1a1951b879c65f1d67f53355fc98ec66bc3a8d75be433",
+    "tokens": 118101,
+    "texts": 421347,
+    "bindings": 608277,
+    "occurrences": 2382424,
+    "direct_hits": 1142120,
+    "morphology_families": 31190,
+    "morphology_surfaces": 65910,
+    "maximum_text_tokens": 93,
+    "maximum_phrase_bytes": 666,
+    "section_raw_bytes": {
+      "Metadata": 242,
+      "MorphologyAnalyses": 251657,
+      "MorphologyFst": 238359,
+      "MorphologyTokens": 424811,
+      "PhraseFst": 8571339,
+      "TextBindings": 2270768,
+      "TextMeta": 4365403,
+      "TextTokens": 6788932,
+      "TokenFst": 894613,
+      "TokenHits": 3921985,
+      "TokenMeta": 1706833,
+      "TokenOccurrences": 8105193,
+      "TokenStrings": 1135055
+    }
+  }
+}
