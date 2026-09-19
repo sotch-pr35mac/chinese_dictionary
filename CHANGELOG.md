@@ -1,7 +1,7 @@
 # Change Log
 All notable changes to this project will be documented in this file. This project adheres to [Semantic Versioning](http://semver.org/).
 
-## [4.0.0] - Unreleased
+## [4.0.0] - 2026-09-19
 ### Breaking
 - Replaced the public `WordEntry` model with the structured schema-4 `LexicalUnit` model and persistent `LexicalId` values.
 - Lookup functions now return borrowed `LexicalUnitRef` views with accessor methods; call `to_owned()` when an owned model is required.
